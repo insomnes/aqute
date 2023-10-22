@@ -1,0 +1,53 @@
+[tool.poetry]
+name = "aqute"
+version = "0.1.0"
+description = "Async QUeue Task Engine"
+authors = ["Mikhail Dengin <denginm@gmail.com>"]
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/insomnes/aqute"
+
+keywords = ["asyncio", "producer-consumer", "ratelimiting"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+
+
+[tool.poetry.group.test]
+optional = true 
+
+[tool.poetry.group.test.dependencies]
+pytest = "^7.4.2"
+pytest-asyncio = "^0.21.1"
+
+[tool.poetry.group.dev]
+optional = true 
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.1.1"
+isort = "^5.12.0"
+black = "^23.10.0"
+mypy = "^1.6.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.ruff]
+extend-select = ["E", "F", "B", "W", "N", "SIM", "T20", "PTH", "ERA"]
+force-exclude = true
+line-length = 88
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+skip_gitignore = true 
+
+[tool.mypy]
+disallow_incomplete_defs = true
+exclude = ['tests/']
