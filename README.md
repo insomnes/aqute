@@ -6,7 +6,7 @@ for hassle-free asynchronous task processing. Leveraging the power of async prog
 Aqute offers:
 
  - **Efficient Producer-Consumer Model**: Utilizing the Producer-Consumer pattern with
- multiple workers, Aqute ensures streamlined task distribution and swift parallel processing.
+ multiple workers, Aqute ensures streamlined task distribution and swift concurrent processing.
 - **Worker count & Rate Limiting**: Regulate the execution rate of tasks and configure 
 the number of workers for concurrent processing, ensuring optimal resource utilization.
 You can even provide your own rate limiting mechanism
