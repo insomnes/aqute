@@ -24,9 +24,9 @@ async def test_immediate_acquire():
 @pytest.mark.asyncio
 async def test_basic_rate_limiting():
     """
-    We should wait at least 1 second for 6 on 5 / 1.
+    We should wait at least 0.5 second for 6 on 5 / 0.5.
     """
-    limiter = SlidingRateLimiter(5, 1)
+    limiter = SlidingRateLimiter(5, 0.2)
 
     for _ in range(5):
         await limiter.acquire()
@@ -35,7 +35,7 @@ async def test_basic_rate_limiting():
     await limiter.acquire()
     elapsed_time = perf_counter() - start
 
-    assert 1 < elapsed_time < 1.1
+    assert 0.2 <= elapsed_time < 0.25
 
 
 @pytest.mark.asyncio
@@ -81,12 +81,12 @@ async def test_boundary():
     """
     We are checking on concurrent example, that our basic logic works as excpected:
       1. First five (as in rate limit config) acquire immediately
-      2. Next five should wait at least 1 second (as in config) before acquire
-      3. Finally the next one should also wait at least 1 second before acquire
+      2. Next five should wait at least 0.2 second (as in config) before acquire
+      3. Finally the next one should also wait at least 0.2 second before acquire
 
     Thus we have our sliding window working
     """
-    limiter = SlidingRateLimiter(5, 1)
+    limiter = SlidingRateLimiter(5, 0.2)
 
     async def acquire_token():
         await limiter.acquire()
@@ -105,8 +105,8 @@ async def test_boundary():
     elapsed_time = perf_counter() - start
 
     assert one_bound_ellapsed < 0.1
-    assert 1 < two_bounds_elapsed < 1.1
-    assert 2 < elapsed_time < 2.1
+    assert 0.2 <= two_bounds_elapsed < 0.25
+    assert 0.4 <= elapsed_time < 0.45
 
 
 @pytest.mark.asyncio
@@ -115,7 +115,7 @@ async def test_simultaneous_acquisitions():
     We are testing the same logic as in test_boundary here, but in more real life like
     looking scenario with all coroutines running via gather at once.
     """
-    limiter = SlidingRateLimiter(5, 1)
+    limiter = SlidingRateLimiter(5, 0.2)
 
     async def acquire_token():
         await limiter.acquire()
@@ -124,7 +124,7 @@ async def test_simultaneous_acquisitions():
     await asyncio.gather(*(acquire_token() for _ in range(11)))
     elapsed_time = perf_counter() - start
 
-    assert 2 < elapsed_time < 2.1
+    assert 0.4 <= elapsed_time < 0.45
 
 
 @pytest.mark.asyncio
@@ -134,7 +134,7 @@ async def test_concurrent_delay_after_rate_exhaustion():
     sure rate limiter works as expected on exhausted limiter.
     """
 
-    limiter = SlidingRateLimiter(5, 1)
+    limiter = SlidingRateLimiter(5, 0.2)
     for _ in range(5):
         await limiter.acquire()
 
@@ -145,7 +145,7 @@ async def test_concurrent_delay_after_rate_exhaustion():
     await asyncio.gather(*(worker() for _ in range(10)))
     elapsed_time = perf_counter() - start
 
-    assert 2 < elapsed_time < 2.1
+    assert 0.4 <= elapsed_time < 0.45
 
 
 @pytest.mark.asyncio
@@ -174,7 +174,7 @@ async def test_sliding_window_works_as_expected():
 
     # Not wait for firts
     assert first_end - firtst_start < 0.1
-    # No wait only sleep timer for second
+    # No wait only sleep timer for second acquire
     assert 0.5 < second_end - second_start < 0.6
     # The diff between third acquire and first is ~1 second
     assert 1 < third_end - first_end < 1.1

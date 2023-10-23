@@ -44,7 +44,6 @@ class Aqute:
                 processing. Defaults to 10.
             input_task_queue_size (optional): Max size of the input task
                 queue. 0 indicates unlimited. Defaults to 0.
-
         """
         self.result_queue = result_queue or asyncio.Queue()
 

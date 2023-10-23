@@ -62,7 +62,6 @@ import logging
 from random import randint, random
 
 from aqute.engine import Aqute, AquteError
-from aqute.ratelimiter import SlidingRateLimiter
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
@@ -125,12 +124,14 @@ asyncio.run(main())
 ```
 
 ## Rate limiting
-You can also add SlidingRateLimiter instance to Aqute for rate limiting:
+You can also add RateLimiter instance to Aqute for rate limiting:
 ```python
+
+    from aqute.ratelimiter import TokenBucketRateLimiter
+
     # Applied rate limiter with 5 handler calls per second.
-    # Rate limiting provided via sliding window algo
     input_data = list(range(20))
-    r_limit = SlidingRateLimiter(5, 1)
+    r_limit = TokenBucketRateLimiter(5, 1)
     aqute = Aqute(handle_coro=handler, workers_count=10, rate_limiter=r_limit)
     result = []
     async for task in aqute.apply_to_each(input_data):
@@ -139,13 +140,17 @@ You can also add SlidingRateLimiter instance to Aqute for rate limiting:
     assert len(result) == len(input_data)
 ```
 
-You can write your own `RateLimiter` with specific algorithm if needed
+There are two avaliable `RateLimiter` implementations:
+- `TokenBucketRateLimiter`: steady rate by default, burstable with `allow_burst` option;
+- `SlidingRateLimiter`: next call will be avaliable after enough time from the oldest one;
+
+You can write your own `RateLimiter` implementation with specific algorithm if needed.
 
 ## Manual task adding, context manager and error retry
 This can be most useful if not all of your tasks are avaliable at the start:
 ```python
-    # You can add tasks manually and also start/stop aqute with with context
-    # manager. And even add tasks on the fly
+    # You can add tasks manually and also start/stop aqute with context
+    # manager. And even add tasks on the fly.
     # Aqute is reliable for errors retry by default, you can specify your own
     # retry count (and use 0 for no retries) and specify errors to retry or not
     # to keep retrying on all errors
@@ -211,7 +216,7 @@ This can be most useful if not all of your tasks are avaliable at the start:
 ```
 
 ## Even more manual management and internal worker queue size
-```
+```python
     # You can configure internal queue size for consumers if you want it to be limited
     aqute = Aqute(
         handle_coro=handler, workers_count=10, input_task_queue_size=2
@@ -236,6 +241,7 @@ import asyncio
 from random import random
 
 from aqute.worker import Foreman
+from aqute.ratelimiter import TokenBucketRateLimiter
 
 async def handler(i: int) -> str:
     await asyncio.sleep(0.01 + (0.09) * random())
@@ -246,7 +252,7 @@ async def main():
     foreman = Foreman(
         handle_coro=handler,
         workers_count=10,
-        rate_limiter=SlidingRateLimiter(5, 1),
+        rate_limiter=TokenBucketRateLimiter(5, 1),
         input_task_queue_size=100,
     )
     for i in range(20):
