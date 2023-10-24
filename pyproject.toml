@@ -51,3 +51,4 @@ skip_gitignore = true
 [tool.mypy]
 disallow_incomplete_defs = true
 exclude = ['tests/']
+show_error_codes = true

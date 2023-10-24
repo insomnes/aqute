@@ -21,6 +21,24 @@ external dependencies, ensuring seamless integration and minimal footprint in yo
 Aqute simplifies task management in asynchronous landscapes, allowing developers
 to focus on the task logic rather than concurrency challenges.
 
+## Table of Contents
+- [Install](#install)
+- [Quickstart](#quickstart)
+- [How to use it?](#how-to-use-it)
+  - [Simple batch processing](#simple-batch-processing)
+  - [Result as async generator per completed](#result-as-async-generator-per-completed)
+  - [Rate limiting](#rate-limiting)
+  - [Manual task adding, context manager and error retry](#manual-task-adding-context-manager-and-error-retry)
+  - [Manual flow management and custom result queue](#manual-flow-management-and-custom-result-queue)
+  - [Even more manual management and internal worker queue size](#even-more-manual-management-and-internal-worker-queue-size)
+  - [Barebone queue via Foreman](#barebone-queue-via-foreman)
+- [Some caveats](#some-caveats)
+  - [Start load timeout](#start-load-timeout)
+  - [You can't wait on not started Aqute](#you-cant-wait-on-not-started-aqute)
+- [Misc](#misc)
+  - [Instance reuse after `stop()`](#instance-reuse-after-stop)
+  - [Type checking and generics](#type-checking-and-generics)
+
 # Install
 Python 3.9+ required:
 ```bash
@@ -319,3 +337,39 @@ Aqute will fail:
     assert aqute.result_queue.qsize() == 20
 ```
 
+## Type checking and generics
+You should get error during type check if you would try to use wrong type with
+`Aqute` methods (types are indered based on your provided handler):
+```python
+from aqute import Aqute
+
+async def handler(i: int) -> str:
+    return f"success {i}"
+
+
+async def main() -> None:
+    aqute = Aqute(
+        handle_coro=handler,
+        workers_count=10
+    )
+    # Mypy error: error: Argument 1 to "add_task" of "Aqute" has incompatible type "str"; expected "int"  [arg-type]
+    await aqute.add_task("10") 
+```
+
+You can also provide the expected types of in/out via generics mechanism:
+```python
+from aqute import Aqute
+
+async def handler(i: int) -> str:
+    return f"success {i}"
+
+
+async def main() -> None:
+    # Mypy error: Argument "handle_coro" to "Aqute" has incompatible type "Callable[[int], Coroutine[Any, Any, str]]"; expected "Callable[[int], Coroutine[Any, Any, int]]"  [arg-type]
+    aqute = Aqute[int, int](
+        handle_coro=handler,
+        workers_count=10
+    )
+
+    await aqute.add_task(123)
+```
