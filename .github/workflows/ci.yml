@@ -18,6 +18,13 @@ jobs:
       with:
         python-version: 3.9
 
+    - name: Install Poetry
+      run: |
+        curl -sSL https://install.python-poetry.org | python3 -
+
+    - name: Install dependencies
+      run: poetry install --with test,dev
+
     - name: Cache Poetry installation
       id: cache-poetry-install
       uses: actions/cache@v2
@@ -36,15 +43,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-poetry-venv-${{ hashFiles('**/poetry.lock') }}-
 
-    - name: Install Poetry
-      if: steps.cache-poetry-install.outputs.cache-hit != 'true'
-      run: |
-        curl -sSL https://install.python-poetry.org | python3 -
-
-    - name: Install dependencies
-      if: steps.cache-poetry-venv.outputs.cache-hit != 'true'
-      run: poetry install --with test,dev
-
   checks:
     needs: prepare-env
     runs-on: ubuntu-latest
@@ -53,6 +51,7 @@ jobs:
         command:
         - "black --check ."
         - "isort --check ."
+        - "ruff ."
         - "mypy ."
         - "pytest -v ."
     steps:
