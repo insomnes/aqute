@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  prepare-env:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+
+    - name: Cache Poetry installation
+      id: cache-poetry-install
+      uses: actions/cache@v2
+      with:
+        path: ~/.poetry
+        key: ${{ runner.os }}-poetry-installation-${{ hashFiles('**/poetry.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-poetry-installation-
+
+    - name: Cache Poetry virtual environment
+      id: cache-poetry-venv
+      uses: actions/cache@v2
+      with:
+        path: ~/.cache/pypoetry
+        key: ${{ runner.os }}-poetry-venv-${{ hashFiles('**/poetry.lock') }}-3.8
+        restore-keys: |
+          ${{ runner.os }}-poetry-venv-${{ hashFiles('**/poetry.lock') }}-
+
+    - name: Install Poetry
+      if: steps.cache-poetry-install.outputs.cache-hit != 'true'
+      run: |
+        curl -sSL https://install.python-poetry.org | python3 -
+
+    - name: Install dependencies
+      if: steps.cache-poetry-venv.outputs.cache-hit != 'true'
+      run: poetry install --with test,dev
+
+  checks:
+    needs: prepare-env
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        command:
+        - "black --check ."
+        - "isort --check ."
+        - "mypy ."
+        - "pytest -v ."
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+
+    - name: Cache Poetry installation
+      uses: actions/cache@v2
+      with:
+        path: ~/.poetry
+        key: ${{ runner.os }}-poetry-installation-${{ hashFiles('**/poetry.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-poetry-installation-
+
+    - name: Cache Poetry virtual environment
+      uses: actions/cache@v2
+      with:
+        path: ~/.cache/pypoetry
+        key: ${{ runner.os }}-poetry-venv-${{ hashFiles('**/poetry.lock') }}-3.8
+        restore-keys: |
+          ${{ runner.os }}-poetry-venv-${{ hashFiles('**/poetry.lock') }}-
+
+    - name: Run check
+      run: |
+        source $(poetry env info --path)/bin/activate
+        ${{ matrix.command }}
