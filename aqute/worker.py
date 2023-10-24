@@ -1,22 +1,20 @@
 import asyncio
 import logging
-from typing import Any, Callable, Coroutine, List, Optional
+from typing import Any, Callable, Coroutine, Generic, List, Optional
 
 from aqute.ratelimiter import RateLimiter
-from aqute.task import END_MARKER, AquteTask, AquteTaskQueueType
+from aqute.task import END_MARKER, AquteTask, AquteTaskQueueType, TData, TResult
 
 logger = logging.getLogger("aqute.worker")
 
-HandlerCoroType = Callable[[Any], Coroutine[Any, Any, Any]]
 
-
-class Worker:
+class Worker(Generic[TData, TResult]):
     def __init__(
         self,
         name: str,
-        handle_coro: HandlerCoroType,
-        input_q: AquteTaskQueueType,
-        output_q: AquteTaskQueueType,
+        handle_coro: Callable[[TData], Coroutine[Any, Any, TResult]],
+        input_q: AquteTaskQueueType[TData, TResult],
+        output_q: AquteTaskQueueType[TData, TResult],
         rate_limiter: Optional[RateLimiter] = None,
     ):
         self.handle_coro = handle_coro
@@ -36,7 +34,7 @@ class Worker:
 
             await self.handle_task(task)
 
-    async def handle_task(self, task: AquteTask) -> None:
+    async def handle_task(self, task: AquteTask[TData, TResult]) -> None:
         if self.rate_limiter:
             await self.rate_limiter.acquire(self.name)
         try:
@@ -50,10 +48,10 @@ class Worker:
         await self.output_q.put(task)
 
 
-class Foreman:
+class Foreman(Generic[TData, TResult]):
     def __init__(
         self,
-        handle_coro: HandlerCoroType,
+        handle_coro: Callable[[TData], Coroutine[Any, Any, TResult]],
         workers_count: int,
         rate_limiter: Optional[RateLimiter] = None,
         input_task_queue_size: int = 0,
@@ -75,9 +73,11 @@ class Foreman:
 
         self._input_task_queue_size = input_task_queue_size
 
-        self.in_queue: AquteTaskQueueType = asyncio.Queue(input_task_queue_size)
-        self.out_queue: AquteTaskQueueType = asyncio.Queue()
-        self._workers: List[Worker] = []
+        self.in_queue: AquteTaskQueueType[TData, TResult] = asyncio.Queue(
+            input_task_queue_size
+        )
+        self.out_queue: AquteTaskQueueType[TData, TResult] = asyncio.Queue()
+        self._workers: List[Worker[TData, TResult]] = []
 
         self._worker_jobs: List[asyncio.Task] = []
         self.reset()
@@ -92,7 +92,7 @@ class Foreman:
         if not self._worker_jobs:
             self._start_workers()
 
-    async def add_task(self, task: AquteTask) -> None:
+    async def add_task(self, task: AquteTask[TData, TResult]) -> None:
         """
         Adds a specified task to the input queue for processing.
 
@@ -101,7 +101,7 @@ class Foreman:
         """
         await self.in_queue.put(task)
 
-    async def get_handeled_task(self) -> AquteTask:
+    async def get_handeled_task(self) -> AquteTask[TData, TResult]:
         """
         Retrieves a processed task from the worker's output queue.
 
@@ -179,7 +179,11 @@ class Foreman:
                 logger.debug(f"Worker {i} already done, skipping adding end job")
                 continue
             await self.in_queue.put(
-                AquteTask(data=END_MARKER, task_id=f"Finish_{i}", _remaining_tries=1)
+                AquteTask(
+                    data=END_MARKER,  # type: ignore
+                    task_id=f"Finish_{i}",
+                    _remaining_tries=1,
+                )
             )
 
         logger.debug("Added ending tasks")

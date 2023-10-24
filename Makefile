@@ -2,7 +2,7 @@ BC="\\033[1\;96m"
 YC="\\033[1\;33m"
 NC="\\033[39m"
 
-.PHONY: install lint black ruff isort mypy black-format isort-format format test
+.PHONY: install lint black ruff isort mypy black-format isort-format format test mypy-strict
 
 install:
 	@poetry install --with test,dev
@@ -32,3 +32,26 @@ format: isort-format black-format
 
 test:
 	@pytest -v .
+
+mypy-strict:
+	@mypy \
+		--disallow-any-unimported \
+		--disallow-any-expr \
+		--disallow-any-decorated \
+		--disallow-any-explicit \
+		--disallow-any-generics \
+		--disallow-subclassing-any \
+		--disallow-untyped-calls \
+		--disallow-untyped-defs \
+		--check-untyped-defs \
+		--disallow-untyped-decorators \
+		--no-implicit-optional \
+		--strict-optional \
+		--warn-redundant-casts \
+		--warn-unused-ignores \
+		--warn-return-any \
+		--warn-unreachable \
+		--warn-no-return \
+		--warn-unused-configs \
+		--strict-equality \
+		.
