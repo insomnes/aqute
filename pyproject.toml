@@ -1,6 +1,7 @@
 [tool.poetry]
 name = "aqute"
-version = "0.2.0"
+# We have dynamic versioning based on tags in Github
+version = "0.0.0"
 description = "Async QUeue Task Engine"
 authors = ["Mikhail Dengin <denginm@gmail.com>"]
 readme = "README.md"
