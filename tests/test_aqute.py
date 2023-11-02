@@ -1,6 +1,6 @@
 import asyncio
 from time import perf_counter
-from typing import Any, Callable, Coroutine, List
+from typing import Any, Callable, Coroutine, List, Optional
 
 import pytest
 
@@ -236,3 +236,26 @@ async def test_with_ratelimiter(rl_name: str):
     elapsed_time = perf_counter() - start
 
     assert 0.4 < elapsed_time < 0.5
+
+
+async def aq_wait_coro(timeout: Optional[float]):
+    aqute = Aqute(
+        workers_count=2,
+        start_timeout_seconds=timeout,
+        handle_coro=non_failing_handler,
+        retry_count=0,
+    )
+    async with aqute:
+        await asyncio.sleep(0.7)
+
+
+@pytest.mark.asyncio
+async def test_not_raising_on_none_timeout():
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(aq_wait_coro(None), timeout=0.5)
+
+
+@pytest.mark.asyncio
+async def test_raising_with_timeout():
+    with pytest.raises(AquteError):
+        await asyncio.wait_for(aq_wait_coro(0.2), timeout=0.5)
