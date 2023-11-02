@@ -294,8 +294,7 @@ async def main():
 
 # Some caveats
 ## Start load timeout
-If no tasks will be provided in the configurable timeout (60 seconds by default), 
-Aqute will fail:
+If no tasks will be provided, and you've set the timeout, Aqute will intentionally fail:
 ```python
     try:
         async with Aqute(

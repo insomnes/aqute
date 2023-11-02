@@ -34,7 +34,7 @@ class Aqute(Generic[TData, TResult]):
         specific_errors_to_retry: Union[
             Tuple[Type[Exception], ...], Type[Exception]
         ] = (),
-        start_timeout_seconds: Union[int, float] = 60,
+        start_timeout_seconds: Optional[Union[int, float]] = None,
         input_task_queue_size: int = 0,
     ):
         """
@@ -51,9 +51,9 @@ class Aqute(Generic[TData, TResult]):
             retry_count (optional): Number of task retry attempts upon
                 failure. Defaults to 2.
             specific_errors_to_retry (optional): Exceptions triggering
-                task retry. Defaults to an empty tuple.
-            start_timeout_seconds (optional): Wait time before starting
-                processing. Defaults to 10.
+                task retry. Defaults to an empty tuple, so every error is retried.
+            start_timeout_seconds (optional): Wait time before failing after start
+                if no tasks were added. Defaults to None.
             input_task_queue_size (optional): Max size of the input task
                 queue. 0 indicates unlimited. Defaults to 0.
         """
@@ -297,7 +297,10 @@ class Aqute(Generic[TData, TResult]):
         return self._added_tasks_count > self._finished_tasks_count
 
     async def _wait_till_can_start(self) -> None:
-        waiting_timer = 0.1
+        if self._start_timeout_seconds is None:
+            return
+
+        waiting_timer = min(0.1, self._start_timeout_seconds)
 
         async def waiting_coro():
             while True:
