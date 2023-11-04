@@ -5,7 +5,11 @@ from typing import Any, Callable, Coroutine, List, Optional
 import pytest
 
 from aqute import Aqute, AquteError, AquteTask
-from aqute.ratelimiter import SlidingRateLimiter, TokenBucketRateLimiter
+from aqute.ratelimiter import (
+    PerWorkerRateLimiter,
+    SlidingRateLimiter,
+    TokenBucketRateLimiter,
+)
 
 
 async def non_failing_handler(i: int) -> str:
@@ -218,13 +222,16 @@ async def test_apply_to_all():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "rl_name",
-    ["sliding", "token"],
-    ids=["Sliding Window", "Token Bucket"],
+    ["sliding", "token", "per_worker"],
+    ids=["Sliding Window", "Token Bucket", "Per Worker Token Bucket"],
 )
 async def test_with_ratelimiter(rl_name: str):
     limiters = {
         "sliding": SlidingRateLimiter(5, 0.2),
         "token": TokenBucketRateLimiter(5, 0.2),
+        # We have 11 tasks for 10 workers, so per worker rate limiting should allow it
+        # at rate of 1 request per 0.4 seconds (for this test to pass)
+        "per_worker": PerWorkerRateLimiter(1, 0.4),
     }
     rate_limiter = limiters[rl_name]
     aqute = Aqute(

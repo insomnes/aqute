@@ -79,7 +79,7 @@ import asyncio
 import logging
 from random import randint, random
 
-from aqute.engine import Aqute, AquteError
+from aqute import Aqute, AquteError
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
@@ -158,9 +158,10 @@ You can also add RateLimiter instance to Aqute for rate limiting:
     assert len(result) == len(input_data)
 ```
 
-There are two avaliable `RateLimiter` implementations:
+There are three avaliable `RateLimiter` implementations:
 - `TokenBucketRateLimiter`: steady rate by default, burstable with `allow_burst` option;
 - `SlidingRateLimiter`: next call will be avaliable after enough time from the oldest one;
+- `PerWorkerRateLimiter`: enforces separate rate limits for each unique worker with separate `TokenBucketRateLimiter` instances;
 
 You can write your own `RateLimiter` implementation with specific algorithm if needed.
 

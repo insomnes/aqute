@@ -1,8 +1,8 @@
 import asyncio
 import logging
-from collections import deque
+from collections import defaultdict, deque
 from time import perf_counter
-from typing import Deque, Protocol, Union
+from typing import Deque, Dict, Protocol, Union
 
 logger = logging.getLogger("aqute.ratelimiter")
 
@@ -64,7 +64,7 @@ class TokenBucketRateLimiter:
 
         Args:
             name (optional): A label or identifier for the action. Primarily used
-            for logging. Defaults to an empty string.
+                for logging. Defaults to an empty string.
         """
         async with self._lock:
             while self._tokens < 1:
@@ -86,7 +86,7 @@ class SlidingRateLimiter:
         Args:
             max_rate: Maximum allowable actions within the time period.
             time_period (optional): Period in seconds for rate measurement. Defaults
-            to 1 second.
+                to 1 second.
         """
         if max_rate < 1 or time_period <= 0:
             raise ValueError(
@@ -107,7 +107,7 @@ class SlidingRateLimiter:
 
         Args:
             name (optional): A label or identifier for the action. Primarily used
-            for logging. Defaults to an empty string.
+                for logging. Defaults to an empty string.
         """
         async with self._lock:
             current_time = perf_counter()
@@ -120,3 +120,44 @@ class SlidingRateLimiter:
                     await asyncio.sleep(sleep_time)
 
             self._timestamps.append(perf_counter())
+
+
+class PerWorkerRateLimiter:
+    def __init__(self, max_rate: int, time_period: Union[int, float] = 1):
+        """
+        Initializes the `PerWorkerRateLimiter` with a specified rate and time period
+        for each unique worker.
+
+        This rate limiter maintains separate instances of `TokenBucketRateLimiter`
+        for each worker, identified by a unique name.
+        It ensures that rate limiting is enforced independently for each worker.
+
+        Args:
+            max_rate: Maximum allowable actions within the time period.
+            time_period (optional): Period in seconds for rate measurement. Defaults
+                to 1 second.
+        """
+        if max_rate < 1 or time_period <= 0:
+            raise ValueError(
+                f"Invalid values for configuration: {max_rate=}, {time_period=}"
+            )
+
+        self._per_worker_limiters: Dict[str, TokenBucketRateLimiter] = defaultdict(
+            lambda: TokenBucketRateLimiter(max_rate, time_period)
+        )
+
+    async def acquire(self, name: str = "") -> None:
+        """
+        Acquires a token for a particular worker, identified by `name`,
+        to proceed with an action.
+
+        If the limit for the worker has been reached, this method will block
+        until a token becomes available, ensuring that rate limits are not exceeded.
+
+        Args:
+            name (optional): The identifier for the worker that is attempting to
+                acquire a rate limit token. Defaults to an empty string
+                for protocol compatibility.
+        """
+
+        await self._per_worker_limiters[name].acquire(name)
