@@ -70,6 +70,7 @@ class Aqute(Generic[TData, TResult]):
             handle_coro=handle_coro,
             workers_count=workers_count,
             rate_limiter=self._rate_limiter,
+            input_task_queue_size=self._input_task_queue_size,
         )
 
         self._added_tasks_count = 0
