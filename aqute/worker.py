@@ -55,6 +55,7 @@ class Foreman(Generic[TData, TResult]):
         workers_count: int,
         rate_limiter: Optional[RateLimiter] = None,
         input_task_queue_size: int = 0,
+        use_priority_queue: bool = False,
     ):
         """
         Initializes a Worker instance to process tasks.
@@ -65,15 +66,20 @@ class Foreman(Generic[TData, TResult]):
             input_q: Queue from which tasks are fetched.
             output_q: Queue to put processed tasks into.
             rate_limiter (optional): Tool to control processing rate. If not given,
-            processing won't be rate-limited.
+                processing won't be rate-limited.
+            input_task_queue_size (optional): Maximum size of the input queue. Defaults
+                to 0, which means no limit.
+            use_priority_queue (optional): Whether to use a priority queues for
+                the in/out. Defaults to False.
         """
         self._handle_coro = handle_coro
         self._workers_count = workers_count
         self._rate_limiter = rate_limiter
 
         self._input_task_queue_size = input_task_queue_size
+        self._use_priority_queue = use_priority_queue
 
-        self.in_queue: AquteTaskQueueType[TData, TResult] = asyncio.Queue(
+        self.in_queue: AquteTaskQueueType[TData, TResult] = self._create_task_queue(
             input_task_queue_size
         )
         self.out_queue: AquteTaskQueueType[TData, TResult] = asyncio.Queue()
@@ -152,7 +158,7 @@ class Foreman(Generic[TData, TResult]):
         the list of worker jobs. Also, logs the resetting action.
         """
         logger.debug("Ressetting workers")
-        self.in_queue = asyncio.Queue(maxsize=self._input_task_queue_size)
+        self.in_queue = self._create_task_queue(size=self._input_task_queue_size)
         self.out_queue = asyncio.Queue()
         self._workers = [
             Worker(
@@ -191,3 +197,8 @@ class Foreman(Generic[TData, TResult]):
     async def _wait_for_workers(self) -> None:
         logger.debug("Waiting for workers to finish")
         await asyncio.gather(*self._worker_jobs)
+
+    def _create_task_queue(self, size: int = 0) -> AquteTaskQueueType[TData, TResult]:
+        if self._use_priority_queue:
+            return asyncio.PriorityQueue(maxsize=size)
+        return asyncio.Queue(maxsize=size)

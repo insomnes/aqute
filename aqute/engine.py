@@ -36,6 +36,7 @@ class Aqute(Generic[TData, TResult]):
         ] = (),
         start_timeout_seconds: Optional[Union[int, float]] = None,
         input_task_queue_size: int = 0,
+        use_priority_queue: bool = False,
     ):
         """
         Engine for reliable running asynchronous tasks via queue with simple retry and
@@ -56,6 +57,8 @@ class Aqute(Generic[TData, TResult]):
                 if no tasks were added. Defaults to None.
             input_task_queue_size (optional): Max size of the input task
                 queue. 0 indicates unlimited. Defaults to 0.
+            use_priority_queue (optional): Use priority queue for tasks.
+                Defaults to False.
         """
         self.result_queue: AquteTaskQueueType[TData, TResult] = (
             result_queue or asyncio.Queue()
@@ -71,6 +74,7 @@ class Aqute(Generic[TData, TResult]):
             workers_count=workers_count,
             rate_limiter=self._rate_limiter,
             input_task_queue_size=self._input_task_queue_size,
+            use_priority_queue=use_priority_queue,
         )
 
         self._added_tasks_count = 0
@@ -131,7 +135,12 @@ class Aqute(Generic[TData, TResult]):
         self.start()
         await self.wait_till_end()
 
-    async def add_task(self, task_data: TData, task_id: Optional[str] = None) -> str:
+    async def add_task(
+        self,
+        task_data: TData,
+        task_id: Optional[str] = None,
+        task_priority: int = 1_000_000,
+    ) -> str:
         """
         Asynchronously adds a new task for processing.
 
@@ -143,6 +152,8 @@ class Aqute(Generic[TData, TResult]):
             task_data: Data for the task to process.
             task_id (optional): Identifier for the task. If not provided, it's
                 auto-generated based on the added tasks count.
+            task_priority (optional): Priority of the task used if priority queue is
+                enabled. Lower means more prior task. Defaults to 1_000_000.
 
         Returns:
             The unique task_id associated with the added task.
@@ -150,7 +161,10 @@ class Aqute(Generic[TData, TResult]):
         task_id = task_id or str(self._added_tasks_count)
 
         task: AquteTask[TData, TResult] = AquteTask(
-            data=task_data, task_id=task_id, _remaining_tries=self._task_tries_count
+            data=task_data,
+            task_id=task_id,
+            _remaining_tries=self._task_tries_count,
+            _priority=task_priority,
         )
         await self._foreman.add_task(task)
 
