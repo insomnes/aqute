@@ -12,6 +12,7 @@ async def run_with_queue_size(
     input_queue_size: int,
     tasks_to_add: int,
     sleep_time: float,
+    use_priority_queue: bool = False,
 ) -> List[float]:
     async def sleep_handler(i: int) -> int:
         await asyncio.sleep(sleep_time)
@@ -21,6 +22,7 @@ async def run_with_queue_size(
         handle_coro=sleep_handler,
         workers_count=workers_count,
         input_task_queue_size=input_queue_size,
+        use_priority_queue=use_priority_queue,
     )
     add_timings = []
     async with aqute:
@@ -49,8 +51,9 @@ async def test_no_queue_size():
 
 
 @pytest.mark.asyncio
-async def test_queue_size_one():
-    add_timings = await run_with_queue_size(1, 1, 6, 0.05)
+@pytest.mark.parametrize("use_priority_queue", [False, True])
+async def test_queue_size_one(use_priority_queue: bool):
+    add_timings = await run_with_queue_size(1, 1, 6, 0.05, use_priority_queue)
 
     # The first two tasks are added instantly
     # due to the available worker and one queue slot.
