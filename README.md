@@ -31,12 +31,13 @@ to focus on the task logic rather than concurrency challenges.
   - [Manual task adding, context manager and error retry](#manual-task-adding-context-manager-and-error-retry)
   - [Manual flow management and custom result queue](#manual-flow-management-and-custom-result-queue)
   - [Even more manual management and internal worker queue size](#even-more-manual-management-and-internal-worker-queue-size)
+  - [Use priroty queue](#use-priroty-queue)
   - [Barebone queue via Foreman](#barebone-queue-via-foreman)
 - [Some caveats](#some-caveats)
   - [Start load timeout](#start-load-timeout)
-  - [You can't wait on not started Aqute](#you-cant-wait-on-not-started-aqute)
+  - [You can't wait on not started Aqute](#you-can-t-wait-on-not-started-aqute)
 - [Misc](#misc)
-  - [Instance reuse after `stop()`](#instance-reuse-after-stop)
+  - [Instance reuse after stop()](#instance-reuse-after-stop)
   - [Type checking and generics](#type-checking-and-generics)
 
 # Install
@@ -250,6 +251,32 @@ This can be most useful if not all of your tasks are avaliable at the start:
     await aqute.stop()
 
     assert aqute.result_queue.qsize() == 10
+```
+
+## Use priroty queue
+You can prioretize tasks by setting `use_priority_queue` flag:
+
+```python
+    async def handler(i: int) -> int:
+        return i
+
+    # Set flag for prioritezed queue, default task priority is 1_000_000
+    aqute = Aqute(
+        workers_count=1,
+        handle_coro=handler,
+        use_priority_queue=True,
+    )
+    await aqute.add_task(1_000_000)
+    await aqute.add_task(10, task_priority=10)
+    await aqute.add_task(5, task_priority=5)
+    await aqute.add_task(10, task_priority=10)
+    await aqute.add_task(1, task_priority=1)
+
+    async with aqute:
+        await aqute.wait_till_end()
+
+    results = aqute.extract_all_results()
+    assert [t.data for t in results] == [1, 5, 10, 10, 1_000_000]```
 ```
 
 ## Barebone queue via Foreman

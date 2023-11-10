@@ -275,6 +275,7 @@ async def test_priority_queue():
         handle_coro=non_failing_handler,
         use_priority_queue=True,
     )
+    await aqute.add_task(1_000_000)
     await aqute.add_task(10, task_priority=10)
     await aqute.add_task(5, task_priority=5)
     await aqute.add_task(10, task_priority=10)
@@ -284,5 +285,5 @@ async def test_priority_queue():
         await aqute.wait_till_end()
 
     results = aqute.extract_all_results()
-    assert [t.data for t in results] == [1, 5, 10, 10]
+    assert [t.data for t in results] == [1, 5, 10, 10, 1_000_000]
 
