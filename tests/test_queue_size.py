@@ -51,7 +51,7 @@ async def test_no_queue_size():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("use_priority_queue", [False, True])
+@pytest.mark.parametrize("use_priority_queue", [False, True], ids=["normal", "prior"])
 async def test_queue_size_one(use_priority_queue: bool):
     add_timings = await run_with_queue_size(1, 1, 6, 0.05, use_priority_queue)
 
