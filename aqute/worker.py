@@ -69,8 +69,8 @@ class Foreman(Generic[TData, TResult]):
                 processing won't be rate-limited.
             input_task_queue_size (optional): Maximum size of the input queue. Defaults
                 to 0, which means no limit.
-            use_priority_queue (optional): Whether to use a priority queues for
-                the in/out. Defaults to False.
+            use_priority_queue (optional): Whether to use a priority queue for input.
+                Defaults to False.
         """
         self._handle_coro = handle_coro
         self._workers_count = workers_count
