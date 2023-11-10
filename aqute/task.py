@@ -26,4 +26,5 @@ class AquteTask(Generic[TData, TResult]):
 
         return self._priority < other._priority
 
+
 AquteTaskQueueType = asyncio.Queue[AquteTask[TData, TResult]]

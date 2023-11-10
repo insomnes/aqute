@@ -286,4 +286,3 @@ async def test_priority_queue():
 
     results = aqute.extract_all_results()
     assert [t.data for t in results] == [1, 5, 10, 10, 1_000_000]
-
