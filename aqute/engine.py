@@ -28,12 +28,16 @@ class Aqute(Generic[TData, TResult]):
         self,
         handle_coro: Callable[[TData], Coroutine[Any, Any, TResult]],
         workers_count: int,
+        *,
         rate_limiter: Optional[RateLimiter] = None,
         result_queue: Optional[AquteTaskQueueType[TData, TResult]] = None,
         retry_count: int = 0,
-        specific_errors_to_retry: Union[
-            Tuple[Type[Exception], ...], Type[Exception]
-        ] = (),
+        specific_errors_to_retry: Optional[
+            Union[Tuple[Type[Exception], ...], Type[Exception]]
+        ] = None,
+        errors_to_not_retry: Optional[
+            Union[Tuple[Type[Exception], ...], Type[Exception]]
+        ] = None,
         start_timeout_seconds: Optional[Union[int, float]] = None,
         input_task_queue_size: int = 0,
         use_priority_queue: bool = False,
@@ -52,7 +56,10 @@ class Aqute(Generic[TData, TResult]):
             retry_count (optional): Number of task retry attempts upon
                 failure. Defaults to 0.
             specific_errors_to_retry (optional): Exceptions triggering
-                task retry. Defaults to an empty tuple, so every error is retried.
+                task retry. Defaults to None, so every error is retried.
+            errors_to_not_retry (optional): Exceptions that should not be
+                retried. This option takes precedence over specific_errors_to_retry.
+                Defaults to None.
             start_timeout_seconds (optional): Wait time before failing after start
                 if no tasks were added. Defaults to None.
             input_task_queue_size (optional): Max size of the input task
@@ -64,8 +71,8 @@ class Aqute(Generic[TData, TResult]):
             result_queue or asyncio.Queue()
         )
 
-        self._task_tries_count = retry_count + 1
-        self._input_task_queue_size = input_task_queue_size
+        self._task_tries_count = max(retry_count, 0) + 1
+        self._input_task_queue_size = max(input_task_queue_size, 0)
 
         self._rate_limiter = rate_limiter
 
@@ -83,6 +90,8 @@ class Aqute(Generic[TData, TResult]):
         self._all_tasks_added = False
 
         self._specific_errors_to_retry = specific_errors_to_retry
+        self._errors_to_not_retry = errors_to_not_retry
+
         self._start_timeout_seconds = start_timeout_seconds
 
         self.aiotask_of_run_load: Optional[asyncio.Task] = None
@@ -366,11 +375,16 @@ class Aqute(Generic[TData, TResult]):
         await self._foreman.add_task(task)
 
     def _should_retry_task(self, task: AquteTask[TData, TResult]) -> bool:
-        if self._specific_errors_to_retry:
-            return (
-                isinstance(task.error, self._specific_errors_to_retry)
-                and task._remaining_tries > 0
-            )
+        if self._errors_to_not_retry and isinstance(
+            task.error, self._errors_to_not_retry
+        ):
+            return False
+
+        if self._specific_errors_to_retry and not isinstance(
+            task.error, self._specific_errors_to_retry
+        ):
+            return False
+
         return task._remaining_tries > 0
 
     async def _put_task_to_result(self, task: AquteTask[TData, TResult]) -> None:
