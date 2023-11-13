@@ -52,12 +52,12 @@ async def test_bursting():
 
     async def check_burst():
         # We can burst at full bucket
-        for _ in range(2):
-            await check_acquire_time(limiter, 0, 0.1)
+        await check_acquire_time(limiter, 0, 0.1)
+        await check_acquire_time(limiter, 0, 0.1)
 
-        for _ in range(2):
-            # Next after burst should be at least 0.1 pause (our rate is req / 0.1 sec)
-            await check_acquire_time(limiter, 0.1, 0.15)
+        # Next after burst should be at least 0.1 pause (our rate is req / 0.1 sec)
+        await check_acquire_time(limiter, 0.1, 0.15)
+        await check_acquire_time(limiter, 0.1, 0.15)
 
     await check_burst()
     # Filling bucket

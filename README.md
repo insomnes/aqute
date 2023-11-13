@@ -180,7 +180,9 @@ This can be most useful if not all of your tasks are avaliable at the start:
         # We we will retry 5 more times after first fail
         retry_count=5,
         # We retry only ValueError here
-        specific_errors_to_retry=(ValueError,)
+        specific_errors_to_retry=(ValueError,),
+        # Either you can set this option to not retry only on ValueError instead
+        errors_to_not_retry=(ValueError,),
     )
     for i in range(10):
         # You also can use your own task id for identification
