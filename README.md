@@ -9,7 +9,7 @@ Aqute offers:
  multiple workers, Aqute ensures streamlined task distribution and swift concurrent processing.
 - **Worker count & Rate Limiting**: Regulate the execution rate of tasks and configure 
 the number of workers for concurrent processing, ensuring optimal resource utilization.
-You can even provide your own rate limiting mechanism
+You can use pre-programmed rate limiters or provide your own rate limiting implementation.
 - **Resilient Retry Mechanism**: Tasks that encounter errors can automatically retry,
 with options to specify which error types should trigger retries.
 Exception in handler is returned as error-value.
@@ -111,7 +111,7 @@ async def main():
 
     # This will apply handler to every item of iterable and return result as list
     # with task results ordered as input iterable
-    aqute = Aqute(handle_coro=handler, workers_count=10)
+    aqute = Aqute(handle_coro=handler, workers_count=10, retry_count=2)
     result = await aqute.apply_to_all(input_data)
     # Each task result is wrapped in AquteTask instance
     assert [t.data for t in result] == input_data
@@ -171,8 +171,8 @@ This can be most useful if not all of your tasks are avaliable at the start:
 ```python
     # You can add tasks manually and also start/stop aqute with context
     # manager. And even add tasks on the fly.
-    # Aqute is reliable for errors retry by default, you can specify your own
-    # retry count (and use 0 for no retries) and specify errors to retry or not
+    # Aqute is reliable for errors retry, you can specify your own
+    # retry count (0 is used for no retries by default) and specify errors to retry or not
     # to keep retrying on all errors
     aqute = Aqute(
         handle_coro=handler,
@@ -280,7 +280,7 @@ You can prioretize tasks by setting `use_priority_queue` flag:
 ```
 
 ## Barebone queue via Foreman
-If you don't need auto retry and helpers you can use `Foreman` for bare flow,
+If you don't need retry flow and high-level helpers you can use `Foreman` for bare flow,
 but still with rate limiting support:
 ```python
 import asyncio

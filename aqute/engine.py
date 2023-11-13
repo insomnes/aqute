@@ -30,7 +30,7 @@ class Aqute(Generic[TData, TResult]):
         workers_count: int,
         rate_limiter: Optional[RateLimiter] = None,
         result_queue: Optional[AquteTaskQueueType[TData, TResult]] = None,
-        retry_count: int = 2,
+        retry_count: int = 0,
         specific_errors_to_retry: Union[
             Tuple[Type[Exception], ...], Type[Exception]
         ] = (),
@@ -50,7 +50,7 @@ class Aqute(Generic[TData, TResult]):
             result_queue (optional): Queue for task results. Defaults
                 to None.
             retry_count (optional): Number of task retry attempts upon
-                failure. Defaults to 2.
+                failure. Defaults to 0.
             specific_errors_to_retry (optional): Exceptions triggering
                 task retry. Defaults to an empty tuple, so every error is retried.
             start_timeout_seconds (optional): Wait time before failing after start
