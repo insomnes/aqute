@@ -1,7 +1,8 @@
 import asyncio
 import logging
-from typing import Any, Callable, Coroutine, Generic, List, Optional
+from typing import Any, Callable, Coroutine, Generic, List, Optional, Union
 
+from aqute.errors import AquteTaskTimeoutError
 from aqute.ratelimiter import RateLimiter
 from aqute.task import END_MARKER, AquteTask, AquteTaskQueueType, TData, TResult
 
@@ -16,6 +17,7 @@ class Worker(Generic[TData, TResult]):
         input_q: AquteTaskQueueType[TData, TResult],
         output_q: AquteTaskQueueType[TData, TResult],
         rate_limiter: Optional[RateLimiter] = None,
+        task_timeout_seconds: Optional[Union[int, float]] = None,
     ):
         self.handle_coro = handle_coro
         self.input_q = input_q
@@ -23,6 +25,7 @@ class Worker(Generic[TData, TResult]):
         self.name = name
 
         self.rate_limiter = rate_limiter
+        self.task_timeout_seconds = task_timeout_seconds
 
     async def run(self) -> None:
         while True:
@@ -38,7 +41,15 @@ class Worker(Generic[TData, TResult]):
         if self.rate_limiter:
             await self.rate_limiter.acquire(self.name)
         try:
-            task.result = await self.handle_coro(task.data)
+            task.result = await asyncio.wait_for(
+                self.handle_coro(task.data), timeout=self.task_timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Worker {self.name} on {task.task_id} timed out after "
+                f"{self.task_timeout_seconds} seconds"
+            )
+            task.error = AquteTaskTimeoutError(f"Task {task.task_id} timed out")
         except Exception as exc:
             logger.warning(
                 f"Worker {self.name} on {task.task_id} got error: "
@@ -56,6 +67,7 @@ class Foreman(Generic[TData, TResult]):
         rate_limiter: Optional[RateLimiter] = None,
         input_task_queue_size: int = 0,
         use_priority_queue: bool = False,
+        task_timeout_seconds: Optional[Union[int, float]] = None,
     ):
         """
         Initializes a Worker instance to process tasks.
@@ -71,6 +83,9 @@ class Foreman(Generic[TData, TResult]):
                 to 0, which means no limit.
             use_priority_queue (optional): Whether to use a priority queue for input.
                 Defaults to False.
+            task_timeout_seconds (optional): Timeout for task handler coroutine wait.
+                Defaults to None. AquteTaskTimeoutError will be raised
+                if task processing takes longer than this value.
         """
         self._handle_coro = handle_coro
         self._workers_count = workers_count
@@ -78,6 +93,8 @@ class Foreman(Generic[TData, TResult]):
 
         self._input_task_queue_size = input_task_queue_size
         self._use_priority_queue = use_priority_queue
+
+        self._task_timeout_seconds = task_timeout_seconds
 
         self.in_queue: AquteTaskQueueType[TData, TResult] = self._create_task_queue(
             input_task_queue_size
@@ -167,6 +184,7 @@ class Foreman(Generic[TData, TResult]):
                 input_q=self.in_queue,
                 output_q=self.out_queue,
                 rate_limiter=self._rate_limiter,
+                task_timeout_seconds=self._task_timeout_seconds,
             )
             for i in range(self._workers_count)
         ]
