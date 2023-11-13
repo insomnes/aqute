@@ -37,7 +37,11 @@ async def add_tasks(engine: Aqute, n: int):
 
 @pytest.mark.asyncio
 async def test_apply_to_each():
-    aqute = Aqute(workers_count=2, handle_coro=get_specific_failing_handler())
+    aqute = Aqute(
+        workers_count=2,
+        handle_coro=get_specific_failing_handler(),
+        retry_count=2,
+    )
     results = []
 
     async for r in aqute.apply_to_each(range(10)):
@@ -52,7 +56,11 @@ async def test_apply_to_each():
 
 @pytest.mark.asyncio
 async def test_apply_to_all():
-    aqute = Aqute(workers_count=2, handle_coro=get_specific_failing_handler())
+    aqute = Aqute(
+        workers_count=2,
+        handle_coro=get_specific_failing_handler(),
+        retry_count=2,
+    )
     results = await aqute.apply_to_all(range(10))
 
     successes = [t for t in results if t.success]
