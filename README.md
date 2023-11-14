@@ -32,6 +32,7 @@ to focus on the task logic rather than concurrency challenges.
   - [Manual flow management and custom result queue](#manual-flow-management-and-custom-result-queue)
   - [Even more manual management and internal worker queue size](#even-more-manual-management-and-internal-worker-queue-size)
   - [Use priroty queue](#use-priroty-queue)
+  - [Task timeout setting](#task-timeout-setting)
   - [Barebone queue via Foreman](#barebone-queue-via-foreman)
 - [Some caveats](#some-caveats)
   - [Start load timeout](#start-load-timeout)
