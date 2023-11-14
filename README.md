@@ -32,6 +32,7 @@ to focus on the task logic rather than concurrency challenges.
   - [Manual flow management and custom result queue](#manual-flow-management-and-custom-result-queue)
   - [Even more manual management and internal worker queue size](#even-more-manual-management-and-internal-worker-queue-size)
   - [Use priroty queue](#use-priroty-queue)
+  - [Task timeout setting](#task-timeout-setting)
   - [Barebone queue via Foreman](#barebone-queue-via-foreman)
 - [Some caveats](#some-caveats)
   - [Start load timeout](#start-load-timeout)
@@ -280,6 +281,37 @@ You can prioretize tasks by setting `use_priority_queue` flag:
     results = aqute.extract_all_results()
     assert [t.data for t in results] == [1, 5, 10, 10, 1_000_000]```
 ```
+
+## Task timeout setting
+The `task_timeout_seconds` option is used to specify a time limit for each task.
+If a task exceeds this duration, it is considered a timeout and is
+handled according to the specified retry logic.
+
+### Timeout with retries
+By default setting timeout will result in task timeout if task exceeds value, but
+retry logic is applied if `retry_count > 0`.
+
+```python
+aqute = Aqute(
+    handle_coro=your_handler_coroutine,
+    task_timeout_seconds=5,
+    retry_count=2,
+    # other parameters
+)
+```
+ 
+### Do not retry on timeout
+To disable this behavior you can set `errors_to_not_retry` with `AquteTaskTimeoutError`:
+```python
+aqute = Aqute(
+    handle_coro=your_handler_coroutine,
+    task_timeout_seconds=5,
+    retry_count=2,
+    errors_to_not_retry=AquteTaskTimeoutError,
+    # other parameters
+)
+```
+
 
 ## Barebone queue via Foreman
 If you don't need retry flow and high-level helpers you can use `Foreman` for bare flow,

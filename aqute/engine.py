@@ -41,6 +41,7 @@ class Aqute(Generic[TData, TResult]):
         start_timeout_seconds: Optional[Union[int, float]] = None,
         input_task_queue_size: int = 0,
         use_priority_queue: bool = False,
+        task_timeout_seconds: Optional[Union[int, float]] = None,
     ):
         """
         Engine for reliable running asynchronous tasks via queue with simple retry and
@@ -66,6 +67,10 @@ class Aqute(Generic[TData, TResult]):
                 queue. 0 indicates unlimited. Defaults to 0.
             use_priority_queue (optional): Use priority queue for tasks.
                 Defaults to False.
+            task_timeout_seconds (optional): Timeout for task handler coroutine wait.
+                Defaults to None. AquteTaskTimeoutError will be raised
+                if task processing takes longer than this value. To not retry task
+                on timeout, add this exception to `errors_to_not_retry`.
         """
         self.result_queue: AquteTaskQueueType[TData, TResult] = (
             result_queue or asyncio.Queue()
@@ -76,12 +81,18 @@ class Aqute(Generic[TData, TResult]):
 
         self._rate_limiter = rate_limiter
 
+        self._handle_coro = handle_coro
+        self._workers_count = workers_count
+        self._use_priority_queue = use_priority_queue
+        self._task_timeout_seconds = task_timeout_seconds
+
         self._foreman = Foreman(
-            handle_coro=handle_coro,
-            workers_count=workers_count,
+            handle_coro=self._handle_coro,
+            workers_count=self._workers_count,
             rate_limiter=self._rate_limiter,
             input_task_queue_size=self._input_task_queue_size,
-            use_priority_queue=use_priority_queue,
+            use_priority_queue=self._use_priority_queue,
+            task_timeout_seconds=self._task_timeout_seconds,
         )
 
         self._added_tasks_count = 0

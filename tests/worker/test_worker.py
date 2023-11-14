@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from aqute.errors import AquteTaskTimeoutError
 from aqute.task import END_MARKER, AquteTask, AquteTaskQueueType
 from aqute.worker import Worker
 
@@ -81,3 +82,31 @@ async def test_handle_task_end():
     await worker.input_q.put(finish_task)
     await run_aiotask
     assert worker.output_q.empty()
+    assert worker.input_q.empty()
+
+
+@pytest.mark.asyncio
+async def test_worker_handle_task_timeout():
+    input_q: AquteTaskQueueType = asyncio.Queue()
+    output_q: AquteTaskQueueType = asyncio.Queue()
+
+    task_timeout = 0.01
+
+    async def slow_handler(data: str) -> str:
+        await asyncio.sleep(task_timeout * 2)
+        return f"handled-{data}"
+
+    worker = Worker(
+        name="TestWorker",
+        handle_coro=slow_handler,
+        input_q=input_q,
+        output_q=output_q,
+        task_timeout_seconds=task_timeout,
+    )
+
+    task = AquteTask(data="task_data", task_id="1")
+    await worker.handle_task(task)
+
+    out_task = await output_q.get()
+    assert out_task.error is not None
+    assert isinstance(out_task.error, AquteTaskTimeoutError)
