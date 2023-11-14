@@ -4,6 +4,7 @@ from typing import Any, Callable, Coroutine
 import pytest
 
 from aqute import Aqute
+from aqute.errors import AquteTaskTimeoutError
 
 
 async def non_failing_handler(i: int) -> str:
@@ -68,6 +69,31 @@ async def test_apply_to_all():
 
     fails = [t for t in results if not t.success]
     assert len(fails) == 1
+
+    # Testing results are sorted as input
+    assert [t.task_id for t in results] == [str(i) for i in range(10)]
+
+
+@pytest.mark.asyncio
+async def test_apply_to_all_timeouts():
+    async def slow_handler(data: int) -> str:
+        await asyncio.sleep(0.01 * data)
+        return f"handled-{data}"
+
+    aqute = Aqute(
+        workers_count=2,
+        handle_coro=slow_handler,
+        retry_count=2,
+        task_timeout_seconds=0.06,
+        errors_to_not_retry=AquteTaskTimeoutError,
+    )
+    results = await aqute.apply_to_all(range(1, 11))
+
+    successes = [t for t in results if t.success]
+    assert len(successes) == 5
+
+    fails = [t for t in results if not t.success]
+    assert len(fails) == 5
 
     # Testing results are sorted as input
     assert [t.task_id for t in results] == [str(i) for i in range(10)]

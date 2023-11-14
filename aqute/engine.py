@@ -81,14 +81,18 @@ class Aqute(Generic[TData, TResult]):
 
         self._rate_limiter = rate_limiter
 
+        self._handle_coro = handle_coro
+        self._workers_count = workers_count
+        self._use_priority_queue = use_priority_queue
         self._task_timeout_seconds = task_timeout_seconds
 
         self._foreman = Foreman(
-            handle_coro=handle_coro,
-            workers_count=workers_count,
+            handle_coro=self._handle_coro,
+            workers_count=self._workers_count,
             rate_limiter=self._rate_limiter,
             input_task_queue_size=self._input_task_queue_size,
-            use_priority_queue=use_priority_queue,
+            use_priority_queue=self._use_priority_queue,
+            task_timeout_seconds=self._task_timeout_seconds,
         )
 
         self._added_tasks_count = 0
