@@ -2,13 +2,15 @@ import asyncio
 import logging
 from collections import defaultdict, deque
 from time import perf_counter
-from typing import Deque, Dict, Protocol, Union
+from typing import Deque, Dict, Optional, Protocol, Union
+
+from aqute.task import AquteTask
 
 logger = logging.getLogger("aqute.ratelimiter")
 
 
 class RateLimiter(Protocol):
-    async def acquire(self, name: str = "") -> None:
+    async def acquire(self, name: str = "", task: Optional[AquteTask] = None) -> None:
         """Shoild block inside this method if needed"""
 
 
@@ -54,7 +56,7 @@ class TokenBucketRateLimiter:
         self._tokens = min(self._bucket_capacity, self._tokens + tokens_to_add)
         self._last_fill = current_time
 
-    async def acquire(self, name: str = "") -> None:
+    async def acquire(self, name: str = "", task: Optional[AquteTask] = None) -> None:
         """
         Acquires permission to proceed based on the rate limits set.
 
@@ -97,7 +99,7 @@ class SlidingRateLimiter:
         self._timestamps: Deque = deque(maxlen=max_rate)
         self._lock = asyncio.Lock()
 
-    async def acquire(self, name: str = "") -> None:
+    async def acquire(self, name: str = "", task: Optional[AquteTask] = None) -> None:
         """
         Acquires permission to proceed based on the rate limits set.
 
@@ -146,7 +148,7 @@ class PerWorkerRateLimiter:
             lambda: TokenBucketRateLimiter(max_rate, time_period)
         )
 
-    async def acquire(self, name: str = "") -> None:
+    async def acquire(self, name: str = "", task: Optional[AquteTask] = None) -> None:
         """
         Acquires a token for a particular worker, identified by `name`,
         to proceed with an action.
