@@ -39,7 +39,7 @@ class Worker(Generic[TData, TResult]):
 
     async def handle_task(self, task: AquteTask[TData, TResult]) -> None:
         if self.rate_limiter:
-            await self.rate_limiter.acquire(self.name)
+            await self.rate_limiter.acquire(name=self.name, task=task)
         try:
             task.result = await asyncio.wait_for(
                 self.handle_coro(task.data), timeout=self.task_timeout_seconds
@@ -179,7 +179,7 @@ class Foreman(Generic[TData, TResult]):
         self.out_queue = asyncio.Queue()
         self._workers = [
             Worker(
-                name=f"{i}",
+                name=f"worker_{i}",
                 handle_coro=self._handle_coro,
                 input_q=self.in_queue,
                 output_q=self.out_queue,
