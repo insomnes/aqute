@@ -164,7 +164,8 @@ There are three avaliable `RateLimiter` implementations:
 - `TokenBucketRateLimiter`: steady rate by default, burstable with `allow_burst` option;
 - `SlidingRateLimiter`: next call will be avaliable after enough time from the oldest one;
 - `PerWorkerRateLimiter`: enforces separate rate limits for each unique worker with separate `TokenBucketRateLimiter` instances;
-- `RandomizedIntervalRateLimiter`: introduces more 
+- `RandomizedIntervalRateLimiter`: introduces more random intervals between each call,
+but enforcing `max_rate` over `time_period` limit.
 
 You can write your own `RateLimiter` implementation with specific algorithm if needed.
 
