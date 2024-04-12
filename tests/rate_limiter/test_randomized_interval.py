@@ -5,6 +5,8 @@ import pytest
 
 from aqute.ratelimiter import RandomizedIntervalRateLimiter
 
+from .checkers import check_value_in_interval
+
 
 @pytest.mark.asyncio
 async def test_basic_rate_limiting():
@@ -19,7 +21,7 @@ async def test_basic_rate_limiting():
     await limiter.acquire()
     elapsed_time = perf_counter() - start
     top_cap = 0.1 + limiter._optimal_sleep * limiter._upper_bound * 2
-    assert 0.1 < elapsed_time < top_cap
+    assert check_value_in_interval(elapsed_time, 0.1, top_cap)
 
 
 @pytest.mark.asyncio
@@ -36,7 +38,7 @@ async def test_simultaneous_rate_limiting():
     await asyncio.gather(*[simulator(limiter) for _ in range(3)])
     elapsed_time = perf_counter() - start
     top_cap = 0.1 + limiter._optimal_sleep * limiter._upper_bound * 2
-    assert 0.1 < elapsed_time < top_cap
+    assert check_value_in_interval(elapsed_time, 0.1, top_cap)
 
 
 @pytest.mark.asyncio
