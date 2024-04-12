@@ -5,6 +5,8 @@ import pytest
 
 from aqute.ratelimiter import TokenBucketRateLimiter
 
+from .checkers import check_value_in_interval
+
 
 async def check_acquire_time(
     limiter: TokenBucketRateLimiter, lower: float, upper: float
@@ -12,7 +14,7 @@ async def check_acquire_time(
     start = perf_counter()
     await limiter.acquire()
     elapsed_time = perf_counter() - start
-    assert lower < elapsed_time < upper
+    assert check_value_in_interval(elapsed_time, lower, upper)
 
 
 @pytest.mark.asyncio
@@ -26,7 +28,7 @@ async def test_immediate_acquire():
     await limiter.acquire()
     elapsed_time = perf_counter() - start
 
-    assert elapsed_time < 0.1
+    assert check_value_in_interval(elapsed_time, 0, 0.1)
 
 
 @pytest.mark.asyncio
@@ -45,8 +47,8 @@ async def test_basic_ratelimiting():
 @pytest.mark.asyncio
 async def test_bursting():
     """
-    If bursting is awaliable, we should be able to acquire fast untill capacity,
-    if bucket is full (at start or after enough waitng time).
+    If bursting is awaliable, we should be able to acquire fast until capacity,
+    if bucket is full (at start or after enough waiting time).
     """
     limiter = TokenBucketRateLimiter(2, 0.2, True)
 
@@ -80,7 +82,7 @@ async def test_simultaneous_acquisitions():
     await asyncio.gather(*(acquire_token() for _ in range(11)))
     elapsed_time = perf_counter() - start
 
-    assert 0.4 <= elapsed_time < 0.45
+    assert check_value_in_interval(elapsed_time, 0.4, 0.45)
 
 
 @pytest.mark.asyncio
@@ -103,7 +105,7 @@ async def test_simultaneous_steady_rate():
     for t in timings[1:]:
         elapsed_time = t - start
         # 1 / 10
-        elapsed.append(0.1 < elapsed_time < 0.15)
+        elapsed.append(check_value_in_interval(elapsed_time, 0.1, 0.15))
         start = t
 
     assert all(elapsed)
