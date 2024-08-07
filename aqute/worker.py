@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import Any, Callable, Coroutine, Generic, List, Optional, Union
+from collections.abc import Coroutine
+from typing import Any, Callable, Generic, Optional, Union
 
 from aqute.errors import AquteTaskTimeoutError
 from aqute.ratelimiter import RateLimiter
@@ -100,9 +101,9 @@ class Foreman(Generic[TData, TResult]):
             input_task_queue_size
         )
         self.out_queue: AquteTaskQueueType[TData, TResult] = asyncio.Queue()
-        self._workers: List[Worker[TData, TResult]] = []
+        self._workers: list[Worker[TData, TResult]] = []
 
-        self._worker_jobs: List[asyncio.Task] = []
+        self._worker_jobs: list[asyncio.Task] = []
         self.reset()
 
     def start(self) -> None:
@@ -124,7 +125,7 @@ class Foreman(Generic[TData, TResult]):
         """
         await self.in_queue.put(task)
 
-    async def get_handeled_task(self) -> AquteTask[TData, TResult]:
+    async def get_handled_task(self) -> AquteTask[TData, TResult]:
         """
         Retrieves a processed task from the worker's output queue.
 
@@ -174,7 +175,7 @@ class Foreman(Generic[TData, TResult]):
         re-creating the worker instances, and clearing
         the list of worker jobs. Also, logs the resetting action.
         """
-        logger.debug("Ressetting workers")
+        logger.debug("Resetting workers")
         self.in_queue = self._create_task_queue(size=self._input_task_queue_size)
         self.out_queue = asyncio.Queue()
         self._workers = [

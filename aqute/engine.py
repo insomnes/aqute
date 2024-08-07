@@ -1,19 +1,16 @@
 import asyncio
 import contextlib
 import logging
+from collections.abc import AsyncIterator, Coroutine, Iterable
 from typing import (
     Any,
-    AsyncIterator,
     Callable,
-    Coroutine,
     Generic,
-    Iterable,
-    List,
     Optional,
-    Tuple,
-    Type,
     Union,
 )
+
+from typing_extensions import Self
 
 from aqute.errors import AquteError
 from aqute.ratelimiter import RateLimiter
@@ -33,10 +30,10 @@ class Aqute(Generic[TData, TResult]):
         result_queue: Optional[AquteTaskQueueType[TData, TResult]] = None,
         retry_count: int = 0,
         specific_errors_to_retry: Optional[
-            Union[Tuple[Type[Exception], ...], Type[Exception]]
+            Union[tuple[type[Exception], ...], type[Exception]]
         ] = None,
         errors_to_not_retry: Optional[
-            Union[Tuple[Type[Exception], ...], Type[Exception]]
+            Union[tuple[type[Exception], ...], type[Exception]]
         ] = None,
         start_timeout_seconds: Optional[Union[int, float]] = None,
         input_task_queue_size: int = 0,
@@ -228,7 +225,7 @@ class Aqute(Generic[TData, TResult]):
 
     async def apply_to_all(
         self, tasks_data: Iterable[TData]
-    ) -> List[AquteTask[TData, TResult]]:
+    ) -> list[AquteTask[TData, TResult]]:
         """
         Asynchronously processes all tasks from the provided iterable.
 
@@ -251,7 +248,7 @@ class Aqute(Generic[TData, TResult]):
 
         self.set_all_tasks_added()
 
-        result: List[AquteTask[TData, TResult]] = [None] * inp_len  # type: ignore
+        result: list[AquteTask[TData, TResult]] = [None] * inp_len  # type: ignore
 
         exposed = 0
 
@@ -265,14 +262,14 @@ class Aqute(Generic[TData, TResult]):
 
     async def get_task_result(self) -> AquteTask[TData, TResult]:
         """
-        Get first avaliable task result in the result queue
+        Get first available task result in the result queue
 
         Returns:
             AquteTask with result or error set
         """
         return await self.result_queue.get()
 
-    def extract_all_results(self) -> List[AquteTask[TData, TResult]]:
+    def extract_all_results(self) -> list[AquteTask[TData, TResult]]:
         """
         Retrieves all the results available in the result queue.
 
@@ -321,8 +318,8 @@ class Aqute(Generic[TData, TResult]):
     async def _run_load(self) -> None:
         await self._wait_till_can_start()
         while self._should_proceed():
-            handeled_task = await self._foreman.get_handeled_task()
-            await self._process_handeled_task(handeled_task)
+            handled_task = await self._foreman.get_handled_task()
+            await self._process_handled_task(handled_task)
 
         await self._foreman.finalize()
 
@@ -337,7 +334,7 @@ class Aqute(Generic[TData, TResult]):
 
         waiting_timer = min(0.1, self._start_timeout_seconds)
 
-        async def waiting_coro():
+        async def waiting_coro() -> None:
             while True:
                 if self._added_tasks_count > self._finished_tasks_count:
                     break
@@ -347,20 +344,20 @@ class Aqute(Generic[TData, TResult]):
             await asyncio.wait_for(waiting_coro(), timeout=self._start_timeout_seconds)
         except asyncio.TimeoutError as exc:
             raise AquteError(
-                f"Waited too long ({self._start_timeout_seconds}s) for avaliable load"
+                f"Waited too long ({self._start_timeout_seconds}s) for available load"
             ) from exc
 
-    async def _process_handeled_task(
-        self, handeled_task: AquteTask[TData, TResult]
+    async def _process_handled_task(
+        self, handled_task: AquteTask[TData, TResult]
     ) -> None:
-        task_id = handeled_task.task_id
+        task_id = handled_task.task_id
 
-        if handeled_task.error:
-            await self._process_error_task(handeled_task)
+        if handled_task.error:
+            await self._process_error_task(handled_task)
             return
 
-        handeled_task.success = True
-        await self._put_task_to_result(handeled_task)
+        handled_task.success = True
+        await self._put_task_to_result(handled_task)
 
         logger.debug(
             f"Finished task {task_id} "
@@ -402,9 +399,9 @@ class Aqute(Generic[TData, TResult]):
         self._finished_tasks_count += 1
         await self.result_queue.put(task)
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> Self:
         self.start()
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb):  # type: ignore
         await self.stop()

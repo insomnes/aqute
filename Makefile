@@ -5,30 +5,31 @@ NC="\\033[39m"
 .PHONY: install lint black ruff isort mypy black-format isort-format format test mypy-strict
 
 install:
-	@poetry install --with test,dev
+	@poetry install --with test,lint
+
+ruff-check-format:
+	@echo -e "${BC}Checking ruff format${NC}" && ruff format --check .
 
 ruff:
-	@echo -e "${BC}Linting via ruff${NC}" && ruff .
-
-isort:
-	@echo -e "${BC}Linting via isort${NC}" && isort --check .
-
-black:
-	@echo -e "${BC}Linting via black${NC}" && black --check .
+	@echo -e "${BC}Checking ruff rules${NC}" && ruff check .
 
 mypy:
 	@echo -e "${BC}Linting via mypy${NC}" && mypy .
 
-lint: ruff isort black mypy
+typos:
+	@echo -e "${BC}Linting via typos${NC}" && typos -v aqute tests README.md
 
 
-isort-format:
-	@echo -e "${YC}Formatting via isort${NC}" && isort .
+lint: ruff-check-format ruff mypy typos
 
-black-format:
-	@echo -e "${YC}Formatting via black${NC}" && black .
 
-format: isort-format black-format
+import-format:
+	@echo -e "${YC}Formatting imports via ruff${NC}" && ruff check --select=I --fix .
+
+ruff-format:
+	@echo -e "${YC}Formatting via ruff${NC}" && ruff format .
+
+format: import-format ruff-format
 
 test:
 	@pytest -v .
@@ -36,10 +37,7 @@ test:
 mypy-strict:
 	@mypy \
 		--disallow-any-unimported \
-		--disallow-any-expr \
 		--disallow-any-decorated \
-		--disallow-any-explicit \
-		--disallow-any-generics \
 		--disallow-subclassing-any \
 		--disallow-untyped-calls \
 		--disallow-untyped-defs \
