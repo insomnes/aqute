@@ -12,7 +12,7 @@ from typing import (
 
 from typing_extensions import Self
 
-from aqute.errors import AquteError
+from aqute.errors import AquteError, AquteTooManyTasksFailedError
 from aqute.ratelimiter import RateLimiter
 from aqute.task import AquteTask, AquteTaskQueueType, TData, TResult
 from aqute.worker import Foreman
@@ -39,6 +39,7 @@ class Aqute(Generic[TData, TResult]):
         input_task_queue_size: int = 0,
         use_priority_queue: bool = False,
         task_timeout_seconds: Optional[Union[int, float]] = None,
+        total_failed_tasks_limit: Optional[int] = None,
     ):
         """
         Engine for reliable running asynchronous tasks via queue with simple retry and
@@ -68,6 +69,8 @@ class Aqute(Generic[TData, TResult]):
                 Defaults to None. AquteTaskTimeoutError will be raised
                 if task processing takes longer than this value. To not retry task
                 on timeout, add this exception to `errors_to_not_retry`.
+            total_failed_tasks_limit (optional): Maximum failed tasks count before
+                stopping processing. Defaults to None.
         """
         self.result_queue: AquteTaskQueueType[TData, TResult] = (
             result_queue or asyncio.Queue()
@@ -82,6 +85,9 @@ class Aqute(Generic[TData, TResult]):
         self._workers_count = workers_count
         self._use_priority_queue = use_priority_queue
         self._task_timeout_seconds = task_timeout_seconds
+
+        self._failed_tasks = 0
+        self._total_failed_limit = total_failed_tasks_limit
 
         self._foreman = Foreman(
             handle_coro=self._handle_coro,
@@ -131,6 +137,8 @@ class Aqute(Generic[TData, TResult]):
 
         Raises:
             AquteError: If the task hasn't been initiated.
+            AquteTooManyTasksFailedError: If there was limit on failed tasks
+                and it was reached.
 
         Side Effects:
             Marks all tasks as added.
@@ -374,6 +382,7 @@ class Aqute(Generic[TData, TResult]):
                 f"Task {task_id} is not retriable, finishing task "
                 f"{self._added_tasks_count, self._finished_tasks_count}"
             )
+            self._check_failed_tasks_limit()
             return
 
         task.error = None
@@ -381,6 +390,19 @@ class Aqute(Generic[TData, TResult]):
             f"Retrying task {task_id} with remaining tries {task._remaining_tries}"
         )
         await self._foreman.add_task(task)
+
+    def _check_failed_tasks_limit(self) -> None:
+        if self._total_failed_limit is None:
+            return
+
+        self._failed_tasks += 1
+        if self._failed_tasks < self._total_failed_limit:
+            return
+
+        logger.debug(f"Total failed tasks limit reached: {self._total_failed_limit}")
+        raise AquteTooManyTasksFailedError(
+            f"Total failed tasks limit reached: {self._total_failed_limit}"
+        )
 
     def _should_retry_task(self, task: AquteTask[TData, TResult]) -> bool:
         if self._errors_to_not_retry and isinstance(
