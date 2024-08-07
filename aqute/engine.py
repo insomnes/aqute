@@ -10,8 +10,6 @@ from typing import (
     Union,
 )
 
-from typing_extensions import Self
-
 from aqute.errors import AquteError, AquteTooManyTasksFailedError
 from aqute.ratelimiter import RateLimiter
 from aqute.task import AquteTask, AquteTaskQueueType, TData, TResult
@@ -421,7 +419,7 @@ class Aqute(Generic[TData, TResult]):
         self._finished_tasks_count += 1
         await self.result_queue.put(task)
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self):  # type: ignore
         self.start()
         return self
 

@@ -2,8 +2,6 @@ import asyncio
 from dataclasses import dataclass
 from typing import Generic, Optional, TypeVar
 
-from typing_extensions import Self
-
 END_MARKER = object()
 
 
@@ -23,7 +21,7 @@ class AquteTask(Generic[TData, TResult]):
     _remaining_tries: int = 0
     _priority: int = 1_000_000
 
-    def __lt__(self, other: Self) -> bool:
+    def __lt__(self, other: "AquteTask") -> bool:
         """Used for priority queue sorting"""
 
         return self._priority < other._priority
