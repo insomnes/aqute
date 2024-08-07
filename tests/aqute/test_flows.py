@@ -117,3 +117,17 @@ async def test_failed_tasks():
         await aqute.wait_till_end()
 
     check_susccess_and_fails(aqute, 9, 1)
+
+
+@pytest.mark.asyncio
+async def test_total_failed_tasks_limit_do_not_intervene():
+    aqute = Aqute(
+        workers_count=2,
+        handle_coro=failing_handler,
+        total_failed_tasks_limit=2,
+    )
+    async with aqute:
+        await add_tasks(aqute, 10)
+        await aqute.wait_till_end()
+
+    check_susccess_and_fails(aqute, 9, 1)

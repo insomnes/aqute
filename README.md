@@ -34,6 +34,7 @@ to focus on the task logic rather than concurrency challenges.
   - [Even more manual management and internal worker queue size](#even-more-manual-management-and-internal-worker-queue-size)
   - [Use priroty queue](#use-priroty-queue)
   - [Task timeout setting](#task-timeout-setting)
+  - [Early stopping on too many failed tasks](#early-stopping-on-too-many-failed-tasks)
   - [Barebone queue via Foreman](#barebone-queue-via-foreman)
 - [Some caveats](#some-caveats)
   - [Start load timeout](#start-load-timeout)
@@ -349,7 +350,7 @@ You can prioritize tasks by setting `use_priority_queue` flag:
         await aqute.wait_till_end()
 
     results = aqute.extract_all_results()
-    assert [t.data for t in results] == [1, 5, 10, 10, 1_000_000]```
+    assert [t.data for t in results] == [1, 5, 10, 10, 1_000_000]
 ```
 
 ## Task timeout setting
@@ -382,6 +383,30 @@ aqute = Aqute(
 )
 ```
 
+## Early stopping on too many failed tasks
+If you want to stop the processing when too many tasks have failed, you can use the
+`total_failed_tasks_limit` option. This will raise `AquteTooManyTasksFailedError` if
+the limit is reached before all tasks are processed:
+```python
+async def failing_handler(task: int) -> int:
+    await asyncio.sleep(0.01)
+    if task % 2 == 0:
+        raise ValueError("Even task number")
+    return task
+
+aqute = Aqute(
+    workers_count=2,
+    handle_coro=failing_handler,
+    total_failed_tasks_limit=5,
+)
+for i in range(10):
+    await aqute.add_task(i)
+
+# This will raise AquteTooManyTasksFailedError cause we have enough failed tasks
+# before all tasks are processed
+async with aqute:
+    await aqute.wait_till_end()
+```
 
 ## Barebone queue via Foreman
 If you don't need retry flow and high-level helpers you can use `Foreman` for bare flow,
