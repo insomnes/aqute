@@ -23,7 +23,7 @@ jobs:
         curl -sSL https://install.python-poetry.org | python3 -
 
     - name: Install dependencies
-      run: poetry install --with test,dev
+      run: poetry install --with test,lint
 
     - name: Cache Poetry installation
       id: cache-poetry-install
@@ -50,11 +50,11 @@ jobs:
     strategy:
       matrix:
         command:
-        - "black --check ."
-        - "isort --check ."
-        - "ruff ."
+        - "ruff check ."
+        - "ruff format --check ."
         - "mypy ."
         - "pytest -v ."
+
     steps:
     - uses: actions/checkout@v2
 
