@@ -1,6 +1,5 @@
 import asyncio
 from time import perf_counter
-from typing import Tuple
 
 import pytest
 
@@ -159,7 +158,7 @@ async def test_sliding_window_works_as_expected():
     """
     limiter = SlidingRateLimiter(2, 1)
 
-    async def worker(sleep_time: float) -> Tuple[float, float]:
+    async def worker(sleep_time: float) -> tuple[float, float]:
         start = perf_counter()
         await asyncio.sleep(sleep_time)
 

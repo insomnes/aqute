@@ -18,38 +18,68 @@ python = "^3.9"
 optional = true 
 
 [tool.poetry.group.test.dependencies]
-pytest = "^7.4.2"
-pytest-asyncio = "^0.21.1"
+pytest = "^8.3.2"
+pytest-asyncio = "^0.23.8"
 
-[tool.poetry.group.dev]
+[tool.poetry.group.lint]
 optional = true 
 
-[tool.poetry.group.dev.dependencies]
-ruff = "^0.1.1"
-isort = "^5.12.0"
-black = "^23.10.0"
-mypy = "^1.6.1"
+[tool.poetry.group.lint.dependencies]
+ruff = "^0.5.6"
+mypy = "^1.11.1"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.mypy]
+show_error_codes = true
+exclude = [
+    "tests",
+    "tmp",
+]
 
 [tool.ruff]
-extend-select = ["E", "F", "B", "W", "N", "SIM", "T20", "PTH", "ERA"]
+line-length = 88
+indent-width = 4
+
+target-version = "py39"
+extend-exclude = [".git", "data"]
 force-exclude = true
-line-length = 88
 
-[tool.black]
-line-length = 88
+[tool.ruff.lint]
+extend-select = [
+    "ARG",
+    "B",
+    "E",
+    "F",
+    "I",
+    "N",
+    "W",
+    "ASYNC",
+    "C4",
+    "C90",
+    "ERA",
+    "NPY",
+    "PERF",
+    "PL",
+    "PTH",
+    "RET",
+    "RUF",
+    "SIM",
+    "T20",
+    "UP",
+]
+ignore = [
+    "PLR0913",
+]
 
-[tool.isort]
-profile = "black"
-line_length = 88
-multi_line_output = 3
-skip_gitignore = true 
-
-[tool.mypy]
-disallow_incomplete_defs = true
-exclude = ['tests/']
-show_error_codes = true
+[tool.ruff.lint.per-file-ignores]
+"aqute/ratelimiter.py" = [
+    "ARG002",
+]
+"tests/**.py" = [
+    "C4",
+    "PLR",
+    "PERF",
+]

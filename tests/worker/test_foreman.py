@@ -25,7 +25,7 @@ async def test_foreman_workflow():
     foreman.start()
 
     await asyncio.sleep(0.1)
-    handled_task = await foreman.get_handeled_task()
+    handled_task = await foreman.get_handled_task()
     await foreman.finalize()
 
     assert handled_task.result == "handled-task_data"
@@ -46,8 +46,8 @@ async def test_foreman_finalize():
     foreman.start()
     worker_aiotasks = [wt for wt in foreman._worker_jobs]
 
-    handled_task1 = await foreman.get_handeled_task()
-    handled_task2 = await foreman.get_handeled_task()
+    handled_task1 = await foreman.get_handled_task()
+    handled_task2 = await foreman.get_handled_task()
 
     assert handled_task1.result == "handled-task_data1"
     assert handled_task2.result == "handled-task_data2"
@@ -78,13 +78,13 @@ async def test_timeout():
     foreman.start()
     worker_aiotasks = [wt for wt in foreman._worker_jobs]
 
-    handeled_tasks = [await foreman.get_handeled_task() for _ in range(10)]
+    handled_tasks = [await foreman.get_handled_task() for _ in range(10)]
 
-    errors = [t.error for t in handeled_tasks if t.error is not None]
+    errors = [t.error for t in handled_tasks if t.error is not None]
     assert len(errors) == 5
     assert all([isinstance(e, AquteTaskTimeoutError) for e in errors])
 
-    successful_tasks = [t for t in handeled_tasks if t.error is None]
+    successful_tasks = [t for t in handled_tasks if t.error is None]
     assert len(successful_tasks) == 5
 
     await foreman.finalize()

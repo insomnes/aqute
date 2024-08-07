@@ -4,7 +4,7 @@ import math
 import random
 from collections import defaultdict, deque
 from time import perf_counter
-from typing import Deque, Dict, Optional, Protocol, Union
+from typing import Optional, Protocol, Union
 
 from aqute.task import AquteTask
 
@@ -36,7 +36,7 @@ class TokenBucketRateLimiter:
             time_period (optional): Period in seconds over which max_rate is measured.
                 Defaults to 1 second.
             allow_burst (optional): allow to burst requests if bucket capacity is
-                avaliable.
+                available.
         """
         if max_rate < 1 or time_period <= 0:
             raise ValueError(
@@ -100,7 +100,7 @@ class SlidingRateLimiter:
             )
         self._max_rate = max_rate
         self._time_period = time_period
-        self._timestamps: Deque[float] = deque(maxlen=max_rate)
+        self._timestamps: deque[float] = deque(maxlen=max_rate)
         self._lock = asyncio.Lock()
 
     async def acquire(self, name: str = "", task: Optional[AquteTask] = None) -> None:
@@ -150,7 +150,7 @@ class PerWorkerRateLimiter:
                 f"Invalid values for configuration: {max_rate=}, {time_period=}"
             )
 
-        self._per_worker_limiters: Dict[str, TokenBucketRateLimiter] = defaultdict(
+        self._per_worker_limiters: dict[str, TokenBucketRateLimiter] = defaultdict(
             lambda: TokenBucketRateLimiter(max_rate, time_period)
         )
 
@@ -221,7 +221,7 @@ class RandomizedIntervalRateLimiter:
         self._fluctuation = lower_upper_fluctuation
         self._gen_count = 0
 
-        self._request_times: Deque[float] = deque(maxlen=max_rate)
+        self._request_times: deque[float] = deque(maxlen=max_rate)
         self._lock = asyncio.Lock()
 
     def _get_multiplier(self) -> float:

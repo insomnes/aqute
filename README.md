@@ -414,7 +414,7 @@ async def main():
     for _ in range(20):
         # Be aware that status and retries are not relevant here
         # But you can check the error field of output
-        r = await foreman.get_handeled_task()
+        r = await foreman.get_handled_task()
         assert r.error is None
         logger.info(r.result)
         result.append(r)

@@ -1,5 +1,6 @@
 import asyncio
-from typing import Any, Callable, Coroutine, List
+from collections.abc import Coroutine
+from typing import Any, Callable
 
 import pytest
 
@@ -48,7 +49,7 @@ def check_susccess(aqute: Aqute, should_be: int):
 
 def check_susccess_and_fails(
     aqute: Aqute, success_count: int, fails_count
-) -> List[AquteTask]:
+) -> list[AquteTask]:
     results = aqute.extract_all_results()
     successes = [t for t in results if t.success]
     fails = [t for t in results if not t.success]

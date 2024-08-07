@@ -1,13 +1,10 @@
 import asyncio
+from collections.abc import Coroutine
 from typing import (
     Any,
     Callable,
-    Coroutine,
-    List,
     NamedTuple,
     Optional,
-    Tuple,
-    Type,
     Union,
 )
 
@@ -25,11 +22,9 @@ class ShouldRetryTestCase(NamedTuple):
     name: str
 
     specific_errors_to_retry: Optional[
-        Union[Tuple[Type[Exception], ...], Type[Exception]]
-    ]  # noqa: E501
-    errors_to_not_retry: Optional[
-        Union[Tuple[Type[Exception], ...], Type[Exception]]
-    ]  # noqa: E501
+        Union[tuple[type[Exception], ...], type[Exception]]
+    ]
+    errors_to_not_retry: Optional[Union[tuple[type[Exception], ...], type[Exception]]]
     task: AquteTask
 
     expected: bool
@@ -165,7 +160,7 @@ def check_susccess(aqute: Aqute, should_be: int):
 
 def check_susccess_and_fails(
     aqute: Aqute, success_count: int, fails_count
-) -> List[AquteTask]:
+) -> list[AquteTask]:
     results = aqute.extract_all_results()
     successes = [t for t in results if t.success]
     fails = [t for t in results if not t.success]
@@ -177,11 +172,9 @@ class RetryTestCase(NamedTuple):
     name: str
     retry_count: int
     specific_errors_to_retry: Optional[
-        Union[Tuple[Type[Exception], ...], Type[Exception]]
-    ]  # noqa: E501
-    errors_to_not_retry: Optional[
-        Union[Tuple[Type[Exception], ...], Type[Exception]]
-    ]  # noqa: E501
+        Union[tuple[type[Exception], ...], type[Exception]]
+    ]
+    errors_to_not_retry: Optional[Union[tuple[type[Exception], ...], type[Exception]]]
     expected_successes: int
     expected_fails: int
 
@@ -378,21 +371,27 @@ async def test_retry(case: RetryTestCase):
     res = check_susccess_and_fails(aqute, case.expected_successes, case.expected_fails)
 
     one_failed = [
-        t for t in res if t.error and t.error.index == OneFailError.index  # type: ignore
+        t
+        for t in res
+        if t.error and t.error.index == OneFailError.index  # type: ignore
     ]
     assert len(one_failed) == case.expected_one_failed
     if case.expected_one_failed > 0:
         assert one_failed[0]._remaining_tries == case.one_remaining_tries
 
     two_failed = [
-        t for t in res if t.error and t.error.index == TwoFailError.index  # type: ignore
+        t
+        for t in res
+        if t.error and t.error.index == TwoFailError.index  # type: ignore
     ]
     assert len(two_failed) == case.expected_two_failed
     if case.expected_two_failed > 0:
         assert two_failed[0]._remaining_tries == case.two_remaining_tries
 
     always_failed = [
-        t for t in res if t.error and t.error.index == AlwaysFailError.index  # type: ignore
+        t
+        for t in res
+        if t.error and t.error.index == AlwaysFailError.index  # type: ignore
     ]
     assert len(always_failed) == case.expected_always_failed
     if case.expected_always_failed > 0:

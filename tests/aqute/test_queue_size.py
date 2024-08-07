@@ -1,6 +1,5 @@
 import asyncio
 from time import perf_counter
-from typing import List
 
 import pytest
 
@@ -13,7 +12,7 @@ async def run_with_queue_size(
     tasks_to_add: int,
     sleep_time: float,
     use_priority_queue: bool = False,
-) -> List[float]:
+) -> list[float]:
     async def sleep_handler(i: int) -> int:
         await asyncio.sleep(sleep_time)
         return i
@@ -114,7 +113,7 @@ async def test_three_workers_size_two():
     #    to be added immediately (three being processed, two in queue).
     # 2. As tasks are being processed, the sixth task must wait for the first
     #    to complete because all three workers are busy and the queue is full.
-    # 3. After the first task completition, the sixth task is added with 0.05 timing.
+    # 3. After the first task completion, the sixth task is added with 0.05 timing.
     # 4. As the second and third tasks finish almost the same time,
     #    the seventh and eighth tasks are added instantly, because
     #    new slots in the queue are available now.
