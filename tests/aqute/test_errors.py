@@ -81,6 +81,35 @@ async def test_too_many_failed_tasks_error(retry_count: int):
 
 
 @pytest.mark.asyncio
+async def test_too_many_failed_tasks_error_with_helper_each():
+    aqute = Aqute(
+        workers_count=2,
+        handle_coro=failing_handler,
+        retry_count=0,
+        total_failed_tasks_limit=1,
+    )
+
+    with pytest.raises(AquteTooManyTasksFailedError) as exc:
+        async for _ in aqute.apply_to_each(range(1, 6)):
+            pass
+    assert "limit reached: 1" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_too_many_failed_tasks_error_with_helper_all():
+    aqute = Aqute(
+        workers_count=2,
+        handle_coro=failing_handler,
+        retry_count=0,
+        total_failed_tasks_limit=1,
+    )
+
+    with pytest.raises(AquteTooManyTasksFailedError) as exc:
+        await aqute.apply_to_all(range(1, 6))
+    assert "limit reached: 1" in str(exc.value)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("retry_count", [0, 1], ids=["no_retry", "one_retry"])
 async def test_not_enough_failed_tasks_for_error(retry_count: int):
     aqute = Aqute(
