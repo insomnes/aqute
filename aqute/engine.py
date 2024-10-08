@@ -272,8 +272,18 @@ class Aqute(Generic[TData, TResult]):
 
         Returns:
             AquteTask with result or error set
+        Raises:
+            AquteTooManyTasksFailedError: If there was limit on failed tasks
+                and it was reached.
         """
-        return await self.result_queue.get()
+        while True:
+            with contextlib.suppress(asyncio.TimeoutError):
+                return await asyncio.wait_for(self.result_queue.get(), timeout=0.1)
+            if self.aiotask_of_run_load is None:
+                raise AquteError("Cannot get task result without started load")
+            if self.aiotask_of_run_load.done():
+                self.aiotask_of_run_load.result()
+            continue
 
     def extract_all_results(self) -> list[AquteTask[TData, TResult]]:
         """
