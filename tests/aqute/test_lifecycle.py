@@ -22,6 +22,56 @@ async def test_wait_after_all_results_were_consumed():
 
 
 @pytest.mark.asyncio
+async def test_cancelled_result_wait_leaves_processing_available():
+    """Cancelling a reader must not cancel work or consume its eventual result."""
+    release = asyncio.Event()
+
+    async def handler(value: int) -> int:
+        await release.wait()
+        return value
+
+    async with Aqute(handler, 1, result_queue=asyncio.Queue(1)) as engine:
+        await engine.add_task(7)
+        reader = asyncio.create_task(engine.get_result())
+        await asyncio.sleep(0)
+        reader.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await reader
+        release.set()
+        async with asyncio.timeout(1):
+            assert (await engine.get_result()).result == 7
+            await engine.finish()
+        assert engine.drain_results() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stop", [False, True])
+async def test_waiting_result_reader_exits_with_load_and_engine_can_restart(stop):
+    """An empty load's completion or stop must unblock its reader before reuse."""
+    engine = Aqute(echo, 1)
+    engine.start()
+    reader = asyncio.create_task(engine.get_result())
+    try:
+        await asyncio.sleep(0)
+        async with asyncio.timeout(1):
+            if stop:
+                await engine.stop()
+            else:
+                await engine.finish()
+            with pytest.raises(
+                AquteError, match=r"cancelled|without another task result"
+            ):
+                await reader
+            await engine.stop()
+            assert (await engine.process_all([7]))[0].result == 7
+    finally:
+        reader.cancel()
+        with contextlib.suppress(asyncio.CancelledError, AquteError):
+            await reader
+        await engine.stop()
+
+
+@pytest.mark.asyncio
 async def test_wait_after_starting_empty_load():
     async with Aqute(echo, 1) as engine:
         await asyncio.sleep(0)

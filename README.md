@@ -1,9 +1,9 @@
 # Aqute
 
-**A**sync **QU**eue **T**ask **E**ngine processes coroutine calls with a worker pool,
-optional rate limits, and retries. It requires Python 3.11 or newer and has no
-runtime dependencies. It runs in one process; pending work and results do not
-survive process termination.
+**A**sync **QU**eue **T**ask **E**ngine is a performance-oriented asyncio task engine
+with configurable concurrency, queue limits, retries, and rate limiting.
+It requires Python 3.11 or newer and has no runtime dependencies. It runs in one
+process; pending work and results do not survive process termination.
 
 ## Quickstart
 
@@ -22,6 +22,11 @@ handler, error handling, and `asyncio.run()`. `process_all()` returns an awaited
 list in input order. `iter_results()` yields terminal results in completion order.
 Both accept synchronous and asynchronous input. Inspect each task's `error` or
 `success`; `None` can be a valid result.
+
+Both helpers accept `submission_batch_size` (default `1`). Larger batches can
+improve throughput for small tasks at the cost of result latency. The default
+preserves per-item cooperative yielding. Handlers still receive one item per call;
+configure worker concurrency and queue limits separately.
 
 ## Documentation and examples
 

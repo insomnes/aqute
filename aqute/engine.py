@@ -115,6 +115,7 @@ class Aqute(Generic[TData, TResult]):
 
         self._all_tasks_added = False
         self._load_changed = asyncio.Event()
+        self._results_changed = asyncio.Event()
 
         self._specific_errors_to_retry = specific_errors_to_retry
         self._errors_to_not_retry = errors_to_not_retry
@@ -155,9 +156,12 @@ class Aqute(Generic[TData, TResult]):
         """
         logger.debug("Starting aqute")
         if self.aiotask_of_run_load is None:
+            self._results_changed = asyncio.Event()
             self.aiotask_of_run_load = asyncio.create_task(
                 self._run_load(), name="aqute-load"
             )
+            changed = self._results_changed
+            self.aiotask_of_run_load.add_done_callback(lambda _: changed.set())
 
         return self.aiotask_of_run_load
 
@@ -265,7 +269,10 @@ class Aqute(Generic[TData, TResult]):
         self._load_changed.set()
 
     async def iter_results(
-        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+        self,
+        tasks_data: Iterable[TData] | AsyncIterable[TData],
+        *,
+        submission_batch_size: int = 1,
     ) -> AsyncGenerator[AquteTask[TData, TResult]]:
         """
         Asynchronously processes each task from the provided iterable.
@@ -277,15 +284,30 @@ class Aqute(Generic[TData, TResult]):
 
         Args:
             tasks_data: Iterable containing data for each task.
+            submission_batch_size: Positive number of inputs to admit between
+                cooperative yields. Defaults to 1. Larger values can improve
+                throughput at the cost of result latency. Queue backpressure
+                and asynchronous input can yield sooner. Handlers still receive
+                one item each; this does not bound otherwise unlimited queues.
+                Batching can be slower when small input queues fill frequently.
 
         Returns:
             An async iterator yielding results as `AquteTask` objects.
+
+        Raises:
+            ValueError: If submission_batch_size is not a positive integer.
+                Validation occurs when iteration starts, before consuming input.
         """
+        if not isinstance(submission_batch_size, int) or submission_batch_size < 1:
+            raise ValueError("submission_batch_size must be a positive integer")
         async with self:
             load = self.start()
             producer = asyncio.create_task(
-                self._produce_tasks(tasks_data), name="aqute-producer"
+                self._produce_tasks(tasks_data, submission_batch_size),
+                name="aqute-producer",
             )
+            changed = self._results_changed
+            producer.add_done_callback(lambda _: changed.set())
             exposed = 0
             try:
                 while not producer.done() or exposed < self._added_tasks_count:
@@ -295,23 +317,10 @@ class Aqute(Generic[TData, TResult]):
                         exposed += 1
                         yield self.result_queue.get_nowait()
                         continue
-                    result = asyncio.create_task(self.result_queue.get())
-                    try:
-                        waiting = (result, load)
-                        if not producer.done():
-                            waiting = (*waiting, producer)
-                        await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
-                        if producer.done():
-                            await producer
-                        if result.done():
-                            exposed += 1
-                            yield result.result()
-                        elif load.done():
-                            await load
-                    finally:
-                        result.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await result
+                    if load.done():
+                        await load
+                    changed.clear()
+                    await changed.wait()
                 await producer
                 await load
             finally:
@@ -326,14 +335,20 @@ class Aqute(Generic[TData, TResult]):
                         raise
 
     async def _produce_tasks(
-        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+        self,
+        tasks_data: Iterable[TData] | AsyncIterable[TData],
+        submission_batch_size: int,
     ) -> None:
+        remaining = submission_batch_size
         if isinstance(tasks_data, AsyncIterable):
             source = aiter(tasks_data)
             try:
                 async for data in source:
                     await self.add_task(data)
-                    await asyncio.sleep(0)
+                    remaining -= 1
+                    if remaining == 0:
+                        remaining = submission_batch_size
+                        await asyncio.sleep(0)
             finally:
                 if isinstance(source, AsyncGenerator):
                     await source.aclose()
@@ -342,14 +357,20 @@ class Aqute(Generic[TData, TResult]):
             try:
                 for data in source:
                     await self.add_task(data)
-                    await asyncio.sleep(0)
+                    remaining -= 1
+                    if remaining == 0:
+                        remaining = submission_batch_size
+                        await asyncio.sleep(0)
             finally:
                 if isinstance(source, Generator):
                     source.close()
         self.finish_submitting()
 
     async def process_all(
-        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+        self,
+        tasks_data: Iterable[TData] | AsyncIterable[TData],
+        *,
+        submission_batch_size: int = 1,
     ) -> list[AquteTask[TData, TResult]]:
         """
         Asynchronously processes all tasks from the provided iterable.
@@ -360,12 +381,19 @@ class Aqute(Generic[TData, TResult]):
 
         Args:
             tasks_data: Iterable containing data items for the tasks.
+            submission_batch_size: Positive number of inputs to admit between
+                cooperative yields; see iter_results(). Defaults to 1.
 
         Returns:
             A list of `AquteTask` objects with results, ordered as in the
             input iterable.
+
+        Raises:
+            ValueError: If submission_batch_size is not a positive integer.
         """
-        async with contextlib.aclosing(self.iter_results(tasks_data)) as results:
+        async with contextlib.aclosing(
+            self.iter_results(tasks_data, submission_batch_size=submission_batch_size)
+        ) as results:
             result = [task async for task in results]
         return sorted(result, key=lambda task: int(task.task_id))
 
@@ -385,19 +413,16 @@ class Aqute(Generic[TData, TResult]):
         load = self.aiotask_of_run_load
         if load is None:
             raise AquteError("Cannot get task result without started load")
-        result = asyncio.create_task(self.result_queue.get())
-        try:
-            await asyncio.wait((result, load), return_when=asyncio.FIRST_COMPLETED)
-            if result.done():
-                return result.result()
-            if load.cancelled():
-                raise AquteError("Load was cancelled; call stop first")
-            await load
-            raise AquteError("Load finished without another task result")
-        finally:
-            result.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await result
+        changed = self._results_changed
+        while self.result_queue.empty():
+            if load.done():
+                if load.cancelled():
+                    raise AquteError("Load was cancelled; call stop first")
+                await load
+                raise AquteError("Load finished without another task result")
+            changed.clear()
+            await changed.wait()
+        return self.result_queue.get_nowait()
 
     def drain_results(self) -> list[AquteTask[TData, TResult]]:
         """
@@ -499,8 +524,10 @@ class Aqute(Generic[TData, TResult]):
         await self._put_task_to_result(handled_task)
 
         logger.debug(
-            f"Finished task {task_id} "
-            f"{self._added_tasks_count, self._finished_tasks_count}"
+            "Finished task %s (%s, %s)",
+            task_id,
+            self._added_tasks_count,
+            self._finished_tasks_count,
         )
 
     def _check_failed_tasks_limit(self) -> None:
@@ -532,6 +559,7 @@ class Aqute(Generic[TData, TResult]):
     async def _put_task_to_result(self, task: AquteTask[TData, TResult]) -> None:
         self._finished_tasks_count += 1
         await self.result_queue.put(task)
+        self._results_changed.set()
 
     async def __aenter__(self) -> Self:
         self.start()

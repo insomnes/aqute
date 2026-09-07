@@ -13,9 +13,77 @@ async def echo(value: int) -> int:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("collect", [False, True])
+@pytest.mark.parametrize("batch_size", [0, -1, 1.5])
+async def test_invalid_submission_batch_does_not_consume_input(collect, batch_size):
+    """Invalid batching must fail without consuming input or preventing reuse."""
+    consumed = []
+
+    def source():
+        consumed.append(1)
+        yield 1
+
+    engine = Aqute(echo, 1)
+    with pytest.raises(ValueError, match="submission_batch_size"):
+        if collect:
+            await engine.process_all(source(), submission_batch_size=batch_size)
+        else:
+            async with contextlib.aclosing(
+                engine.iter_results(source(), submission_batch_size=batch_size)
+            ) as results:
+                await anext(results)
+    assert consumed == []
+    assert (await engine.process_all([2]))[0].result == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("collect", [False, True])
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("batch_size", [None, 4])
+async def test_submission_batch_gives_ready_coroutines_a_turn(
+    collect, asynchronous, batch_size
+):
+    """Even unbounded submission must give ready coroutines a turn after a batch."""
+    produced = 0
+    observer = None
+
+    async def observe():
+        return produced
+
+    def source():
+        nonlocal produced, observer
+        for value in range(9):
+            produced += 1
+            if observer is None:
+                observer = asyncio.create_task(observe())
+            yield value
+
+    async def async_source():
+        for value in source():
+            yield value
+
+    items = async_source() if asynchronous else source()
+    options = {} if batch_size is None else {"submission_batch_size": batch_size}
+    engine = Aqute(echo, 2)
+    async with asyncio.timeout(1):
+        if collect:
+            results = await engine.process_all(items, **options)
+        else:
+            results = [result async for result in engine.iter_results(items, **options)]
+        assert observer is not None
+        assert await observer == (1 if batch_size is None else batch_size)
+    assert [
+        result.result for result in sorted(results, key=lambda task: task.data)
+    ] == list(range(9))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("collect", [False, True])
 @pytest.mark.parametrize("asynchronous", [False, True])
 @pytest.mark.parametrize("values", [[], [1, 2]])
-async def test_helpers_complete_with_bounded_queues(collect, asynchronous, values):
+@pytest.mark.parametrize("batch_size", [1, 4, 32])
+async def test_helpers_complete_with_bounded_queues(
+    collect, asynchronous, values, batch_size
+):
     async def source():
         for value in values:
             yield value
@@ -30,15 +98,21 @@ async def test_helpers_complete_with_bounded_queues(collect, asynchronous, value
     )
     async with asyncio.timeout(1):
         if collect:
-            results = await engine.process_all(items)
+            results = await engine.process_all(items, submission_batch_size=batch_size)
         else:
-            results = [result async for result in engine.iter_results(items)]
+            results = [
+                result
+                async for result in engine.iter_results(
+                    items, submission_batch_size=batch_size
+                )
+            ]
     assert [result.result for result in results] == values
     assert all(result.success for result in results)
 
 
 @pytest.mark.asyncio
-async def test_first_result_precedes_async_source_exhaustion():
+@pytest.mark.parametrize("batch_size", [1, 32])
+async def test_first_result_precedes_async_source_exhaustion(batch_size):
     release = asyncio.Event()
 
     async def source():
@@ -47,7 +121,9 @@ async def test_first_result_precedes_async_source_exhaustion():
         yield 2
 
     engine = Aqute(echo, 1)
-    async with contextlib.aclosing(engine.iter_results(source())) as results:
+    async with contextlib.aclosing(
+        engine.iter_results(source(), submission_batch_size=batch_size)
+    ) as results:
         async with asyncio.timeout(1):
             assert (await anext(results)).result == 1
             release.set()
@@ -57,7 +133,8 @@ async def test_first_result_precedes_async_source_exhaustion():
 
 
 @pytest.mark.asyncio
-async def test_iterator_yields_in_completion_order():
+@pytest.mark.parametrize("batch_size", [1, 32])
+async def test_iterator_yields_in_completion_order(batch_size):
     release = asyncio.Event()
 
     async def handler(value: int) -> int:
@@ -66,7 +143,9 @@ async def test_iterator_yields_in_completion_order():
         return value
 
     engine = Aqute(handler, 2, input_task_queue_size=1)
-    async with contextlib.aclosing(engine.iter_results([1, 2])) as results:
+    async with contextlib.aclosing(
+        engine.iter_results([1, 2], submission_batch_size=batch_size)
+    ) as results:
         async with asyncio.timeout(1):
             assert (await anext(results)).result == 2
             release.set()
@@ -74,8 +153,8 @@ async def test_iterator_yields_in_completion_order():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("manual", [False, True])
-async def test_slow_consumption_bounds_production_and_handlers(manual):
+@pytest.mark.parametrize(("manual", "batch_size"), [(True, 1), (False, 1), (False, 32)])
+async def test_slow_consumption_bounds_production_and_handlers(manual, batch_size):
     # I + 2R + W + 3 includes a producer item and the currently yielded result.
     bound = 1 + 2 * 1 + 2 + 3
     produced = 0
@@ -126,7 +205,9 @@ async def test_slow_consumption_bounds_production_and_handlers(manual):
                     with contextlib.suppress(asyncio.CancelledError):
                         await producer
         else:
-            async with contextlib.aclosing(engine.iter_results(source())) as stream:
+            async with contextlib.aclosing(
+                engine.iter_results(source(), submission_batch_size=batch_size)
+            ) as stream:
                 first = await anext(stream)
                 with pytest.raises(TimeoutError):
                     async with asyncio.timeout(0.05):
@@ -142,7 +223,10 @@ async def test_slow_consumption_bounds_production_and_handlers(manual):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("priority", [False, True])
-async def test_retries_complete_with_slow_consumption_and_bounded_queues(priority):
+@pytest.mark.parametrize("batch_size", [1, 32])
+async def test_retries_complete_with_slow_consumption_and_bounded_queues(
+    priority, batch_size
+):
     attempts = Counter()
 
     async def handler(value: int) -> int:
@@ -161,7 +245,9 @@ async def test_retries_complete_with_slow_consumption_and_bounded_queues(priorit
     )
     async with asyncio.timeout(2):
         results = []
-        async for result in engine.iter_results(range(20)):
+        async for result in engine.iter_results(
+            range(20), submission_batch_size=batch_size
+        ):
             results.append(result)
             await asyncio.sleep(0.001)
     assert all(result.success for result in results)
@@ -172,7 +258,8 @@ async def test_retries_complete_with_slow_consumption_and_bounded_queues(priorit
 
 
 @pytest.mark.asyncio
-async def test_source_failure_cancels_active_handler():
+@pytest.mark.parametrize("batch_size", [1, 32])
+async def test_source_failure_cancels_active_handler(batch_size):
     started = asyncio.Event()
     cleaned = asyncio.Event()
 
@@ -192,13 +279,14 @@ async def test_source_failure_cancels_active_handler():
     engine = Aqute(handler, 1, input_task_queue_size=1)
     async with asyncio.timeout(1):
         with pytest.raises(ValueError, match="source failed"):
-            await engine.process_all(source())
+            await engine.process_all(source(), submission_batch_size=batch_size)
     assert cleaned.is_set()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("asynchronous", [False, True])
-async def test_iterator_close_cleans_source_and_handler(asynchronous):
+@pytest.mark.parametrize("batch_size", [1, 32])
+async def test_iterator_close_cleans_source_and_handler(asynchronous, batch_size):
     started = asyncio.Event()
     cleaned = asyncio.Event()
     source_closed = asyncio.Event()
@@ -228,7 +316,9 @@ async def test_iterator_close_cleans_source_and_handler(asynchronous):
     engine = Aqute(handler, 1, input_task_queue_size=1, result_queue=asyncio.Queue(1))
     items = async_source() if asynchronous else source()
     async with asyncio.timeout(1):
-        async with contextlib.aclosing(engine.iter_results(items)) as results:
+        async with contextlib.aclosing(
+            engine.iter_results(items, submission_batch_size=batch_size)
+        ) as results:
             assert (await anext(results)).result == 0
             await started.wait()
     assert cleaned.is_set()
@@ -261,7 +351,8 @@ async def test_cancelling_collection_cleans_waiting_source():
 
 
 @pytest.mark.asyncio
-async def test_drain_retained_results_before_reusing_helper():
+@pytest.mark.parametrize("batch_size", [1, 32])
+async def test_drain_retained_results_before_reusing_helper(batch_size):
     completed = asyncio.Event()
     handled = []
 
@@ -273,7 +364,9 @@ async def test_drain_retained_results_before_reusing_helper():
 
     engine = Aqute(handler, 2)
     async with asyncio.timeout(1):
-        async with contextlib.aclosing(engine.iter_results([1, 2, 3])) as results:
+        async with contextlib.aclosing(
+            engine.iter_results([1, 2, 3], submission_batch_size=batch_size)
+        ) as results:
             first = await anext(results)
             await completed.wait()
             # Waiting for the public run drains completed work into retained results.
