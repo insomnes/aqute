@@ -39,6 +39,7 @@ to focus on the task logic rather than concurrency challenges.
 - [Some caveats](#some-caveats)
   - [Start load timeout](#start-load-timeout)
   - [You can't wait on not started Aqute](#you-can-t-wait-on-not-started-aqute)
+- [Development](#development)
 - [Misc](#misc)
   - [Instance reuse after stop()](#instance-reuse-after-stop)
   - [Type checking and generics](#type-checking-and-generics)
@@ -177,7 +178,6 @@ async def main():
 
     # Only to show ruling the done / not done status from outside
     TASK_LIMIT = 10_000
-    done = asyncio.Event()
 
     aqute = Aqute(handle_coro=handler, workers_count=20)
 
@@ -195,16 +195,12 @@ async def main():
         while len(result) < TASK_LIMIT:
             task = await aqute.get_task_result()
             result.append(task)
-        done.set()
 
     async with aqute:
-        asyncio.create_task(add_tasks())
-        asyncio.create_task(collect_results())
-        # Better to use await done.wait() instead of while loop,
-        # but it's just for demonstration purposes
-        while not done.is_set():
-            logger.info(f"Done tasks: {len(result):_}/{TASK_LIMIT:_}")
-            await asyncio.sleep(5)
+        async with asyncio.TaskGroup() as group:
+            group.create_task(add_tasks())
+            group.create_task(collect_results())
+        await aqute.wait_till_end()
 
     logger.info(f"Done tasks: {len(result):_}/{TASK_LIMIT:_}")
 
@@ -287,9 +283,7 @@ This can be most useful if not all of your tasks are available at the start:
 
     aqute = Aqute(handle_coro=handler, workers_count=10, result_queue=result_q)
     for i in range(10):
-        # We can't await here cause we will hang without queue emptying
-        asyncio.create_task(aqute.add_task(i))
-    await asyncio.sleep(0.1)
+        await aqute.add_task(i)
 
     # Starting the processing
     aqute.start()
@@ -315,14 +309,11 @@ This can be most useful if not all of your tasks are available at the start:
     aqute = Aqute(
         handle_coro=handler, workers_count=10, input_task_queue_size=2
     )
-    for i in range(10):
-        await aqute.add_task(i)
-    # Should set it before awaiting bare start() if we want
-    aqute.set_all_tasks_added()
-
-    aqute_run_aiotask = aqute.start()
-    await aqute_run_aiotask
-    await aqute.stop()
+    async with aqute:
+        # Start consumers before filling a bounded input queue.
+        for i in range(10):
+            await aqute.add_task(i)
+        await aqute.wait_till_end()
 
     assert aqute.result_queue.qsize() == 10
 ```
@@ -475,8 +466,39 @@ If no tasks will be provided, and you've set the timeout, Aqute will intentional
         logger.error(f"Aqute cannot be waited here: {exc}")
 ```
 
+# Development
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run:
+
+```bash
+uv sync --locked
+make check       # Ruff format check, Ruff lint, ty, and pytest
+make format      # Sort imports and format Python files
+make build       # Build the source distribution and wheel
+```
+
+The default development dependency group includes all checks. Commands use the
+committed `uv.lock`; update dependencies with `uv lock --upgrade` and verify them
+with `make check`. CI tests Python 3.11, 3.12, 3.13, and 3.14.
+
+Release CI runs checks, sets the package version from the published GitHub release
+tag (with an optional `v` prefix), and builds with `uv_build`. PyPI publishing uses
+GitHub's trusted publishing identity.
+
 # Misc
 ## Instance reuse after `stop()`
+
+`stop()` cancels processing and waits for worker cleanup. It resets task and failure
+counters but preserves completed results. Handlers and custom rate limiters must
+propagate cancellation; there is no forced termination of an uncooperative coroutine.
+Cancelling the task returned by `start()` also waits for worker cleanup.
+
+Handler exceptions remain in `AquteTask.error` and follow the configured retry rules.
+Unexpected worker failures, such as a custom rate limiter raising an exception,
+stop the worker group and propagate as an `ExceptionGroup`.
+`get_task_result()` raises `AquteError` when processing has finished and no results
+remain. It propagates a processing failure when there is no queued result to return.
+
 ```python
     # You can reuse same aqute instance after proper stop() call
     aqute = Aqute(handle_coro=handler,workers_count=5)
@@ -508,7 +530,7 @@ async def main() -> None:
         handle_coro=handler,
         workers_count=10
     )
-    # Mypy error: error: Argument 1 to "add_task" of "Aqute" has incompatible type "str"; expected "int"  [arg-type]
+    # ty reports invalid-argument-type: the handler expects int, not str.
     await aqute.add_task("10") 
 ```
 
@@ -521,7 +543,7 @@ async def handler(i: int) -> str:
 
 
 async def main() -> None:
-    # Mypy error: Argument "handle_coro" to "Aqute" has incompatible type "Callable[[int], Coroutine[Any, Any, str]]"; expected "Callable[[int], Coroutine[Any, Any, int]]"  [arg-type]
+    # ty reports invalid-argument-type: the handler returns str, not int.
     aqute = Aqute[int, int](
         handle_coro=handler,
         workers_count=10

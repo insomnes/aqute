@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable, Coroutine
 from typing import Any, Generic
@@ -31,20 +32,22 @@ class Worker(Generic[TData, TResult]):
     async def run(self) -> None:
         while True:
             task = await self.input_q.get()
-            logger.debug(f"Worker {self.name} got task {task.task_id}")
-
-            if task.data is END_MARKER:
-                break
-
-            await self.handle_task(task)
+            try:
+                logger.debug(f"Worker {self.name} got task {task.task_id}")
+                if task.data is END_MARKER:
+                    return
+                await self.handle_task(task)
+            finally:
+                self.input_q.task_done()
 
     async def handle_task(self, task: AquteTask[TData, TResult]) -> None:
         if self.rate_limiter:
             await self.rate_limiter.acquire(name=self.name, task=task)
         try:
-            task.result = await asyncio.wait_for(
-                self.handle_coro(task.data), timeout=self.task_timeout_seconds
-            )
+            if self.task_timeout_seconds is not None and self.task_timeout_seconds <= 0:
+                raise TimeoutError
+            async with asyncio.timeout(self.task_timeout_seconds):
+                task.result = await self.handle_coro(task.data)
         except TimeoutError:
             logger.warning(
                 f"Worker {self.name} on {task.task_id} timed out after "
@@ -71,13 +74,11 @@ class Foreman(Generic[TData, TResult]):
         task_timeout_seconds: int | float | None = None,
     ):
         """
-        Initializes a Worker instance to process tasks.
+        Initialize a worker pool with a shared input queue.
 
         Args:
-            name: Identifier for the worker.
             handle_coro: Coroutine designated for task processing.
-            input_q: Queue from which tasks are fetched.
-            output_q: Queue to put processed tasks into.
+            workers_count: Number of workers. Must be at least one.
             rate_limiter (optional): Tool to control processing rate. If not given,
                 processing won't be rate-limited.
             input_task_queue_size (optional): Maximum size of the input queue. Defaults
@@ -88,6 +89,8 @@ class Foreman(Generic[TData, TResult]):
                 Defaults to None. AquteTaskTimeoutError will be raised
                 if task processing takes longer than this value.
         """
+        if workers_count < 1:
+            raise ValueError("workers_count must be at least 1")
         self._handle_coro = handle_coro
         self._workers_count = workers_count
         self._rate_limiter = rate_limiter
@@ -103,7 +106,8 @@ class Foreman(Generic[TData, TResult]):
         self.out_queue: AquteTaskQueueType[TData, TResult] = asyncio.Queue()
         self._workers: list[Worker[TData, TResult]] = []
 
-        self._worker_jobs: list[asyncio.Task] = []
+        self._worker_run: asyncio.Task[None] | None = None
+        self._closing = asyncio.Event()
         self.reset()
 
     def start(self) -> None:
@@ -113,8 +117,10 @@ class Foreman(Generic[TData, TResult]):
         If the workers haven't been initialized yet, they'll be
         set to start processing tasks.
         """
-        if not self._worker_jobs:
-            self._start_workers()
+        if self._worker_run is None:
+            self._worker_run = asyncio.create_task(
+                self._run_workers(), name="aqute-workers"
+            )
 
     async def add_task(self, task: AquteTask[TData, TResult]) -> None:
         """
@@ -123,7 +129,24 @@ class Foreman(Generic[TData, TResult]):
         Args:
             task: The task to be processed.
         """
-        await self.in_queue.put(task)
+        run = self._worker_run
+        if run is not None and run.done():
+            await run
+            raise RuntimeError("Workers finished before the task could be queued")
+        if run is None or not self.in_queue.full():
+            await self.in_queue.put(task)
+            return
+        admission = asyncio.create_task(self.in_queue.put(task))
+        try:
+            await asyncio.wait((admission, run), return_when=asyncio.FIRST_COMPLETED)
+            if run.done():
+                await run
+                raise RuntimeError("Workers finished before the task could be queued")
+            await admission
+        finally:
+            admission.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await admission
 
     async def get_handled_task(self) -> AquteTask[TData, TResult]:
         """
@@ -132,40 +155,49 @@ class Foreman(Generic[TData, TResult]):
         Returns:
             AquteTask: The processed task from the queue.
         """
-        return await self.out_queue.get()
+        if not self.out_queue.empty():
+            return self.out_queue.get_nowait()
+        if self._worker_run is None:
+            return await self.out_queue.get()
+        result = asyncio.create_task(self.out_queue.get())
+        try:
+            await asyncio.wait(
+                (result, self._worker_run), return_when=asyncio.FIRST_COMPLETED
+            )
+            if result.done():
+                return result.result()
+            await self._worker_run
+            raise RuntimeError("Workers finished without another result")
+        finally:
+            result.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await result
 
     async def finalize(self) -> None:
         """
-        Asynchronously finalize the current operations.
-
-        This method ensures that ending tasks are added, waits for
-        workers to complete their tasks, and then stops the workers.
+        Drain queued tasks and wait for all workers to exit, then reset.
         """
-        await self._add_ending_tasks()
-        await self._wait_for_workers()
-        await self.stop()
+        if self._worker_run is None:
+            return
+        self._closing.set()
+        try:
+            await self._worker_run
+        finally:
+            self.reset()
 
     async def stop(self) -> None:
         """
-        Asynchronously stops all active workers.
+        Cancel workers and wait for their cleanup, then reset the queues.
 
-        It checks if there are active worker jobs, logs the stopping action,
-        cancels all active worker jobs,
-        awaits for the jobs to stop with a 2-second timeout,
-        logs once all workers have stopped, and then resets the Foreman
-        to its initial state.
+        Handlers and rate limiters must cooperate with asyncio cancellation.
         """
-        if not self._worker_jobs:
-            return
-        logger.debug("Stopping workers")
-        for t in self._worker_jobs:
-            t.cancel()
-        await asyncio.gather(
-            *[asyncio.wait_for(t, timeout=2) for t in self._worker_jobs],
-            return_exceptions=True,
-        )
-        logger.debug("Workers stopped")
-        self.reset()
+        try:
+            if self._worker_run is not None:
+                self._worker_run.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._worker_run
+        finally:
+            self.reset()
 
     def reset(self) -> None:
         """
@@ -173,7 +205,7 @@ class Foreman(Generic[TData, TResult]):
 
         Via re-initializing worker input and output queues,
         re-creating the worker instances, and clearing
-        the list of worker jobs. Also, logs the resetting action.
+        the worker supervisor. Call only after workers have stopped.
         """
         logger.debug("Resetting workers")
         self.in_queue = self._create_task_queue(size=self._input_task_queue_size)
@@ -189,33 +221,16 @@ class Foreman(Generic[TData, TResult]):
             )
             for i in range(self._workers_count)
         ]
-        self._worker_jobs = []
+        self._worker_run = None
+        self._closing = asyncio.Event()
 
-    def _start_workers(self) -> None:
-        if self._worker_jobs:
-            logger.debug("Workers already started, skipping")
-            return
-        self._worker_jobs = [asyncio.create_task(w.run()) for w in self._workers]
-        logger.debug(f"Started {len(self._worker_jobs)} workers")
-
-    async def _add_ending_tasks(self) -> None:
-        for i, wj in enumerate(self._worker_jobs):
-            if wj.done():
-                logger.debug(f"Worker {i} already done, skipping adding end job")
-                continue
-            await self.in_queue.put(
-                AquteTask[TData, TResult](
-                    data=END_MARKER,  # type: ignore
-                    task_id=f"Finish_{i}",
-                    _remaining_tries=1,
-                )
-            )
-
-        logger.debug("Added ending tasks")
-
-    async def _wait_for_workers(self) -> None:
-        logger.debug("Waiting for workers to finish")
-        await asyncio.gather(*self._worker_jobs)
+    async def _run_workers(self) -> None:
+        async with asyncio.TaskGroup() as group:
+            jobs = [group.create_task(w.run(), name=w.name) for w in self._workers]
+            await self._closing.wait()
+            await self.in_queue.join()
+            for job in jobs:
+                job.cancel()
 
     def _create_task_queue(self, size: int = 0) -> AquteTaskQueueType[TData, TResult]:
         if self._use_priority_queue:
