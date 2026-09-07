@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import warnings
 from collections.abc import (
     AsyncGenerator,
     AsyncIterable,
@@ -160,7 +161,7 @@ class Aqute(Generic[TData, TResult]):
 
         return self.aiotask_of_run_load
 
-    async def wait_till_end(self) -> None:
+    async def finish(self) -> None:
         """
         Awaits the completion of Aqute's main processing task.
 
@@ -178,11 +179,11 @@ class Aqute(Generic[TData, TResult]):
         logger.debug("Waiting till aqute end")
         if self.aiotask_of_run_load is None:
             raise AquteError("Cannot wait for not started load")
-        self.set_all_tasks_added()
+        self.finish_submitting()
         await self.aiotask_of_run_load
         logger.debug("Aqute load task ended")
 
-    async def start_and_wait(self) -> None:
+    async def run(self) -> None:
         """
         Initiates Aqute's processing and awaits its completion.
 
@@ -190,7 +191,7 @@ class Aqute(Generic[TData, TResult]):
         tasks to finish. Ensures that all processing completes before exiting.
         """
         self.start()
-        await self.wait_till_end()
+        await self.finish()
 
     async def add_task(
         self,
@@ -253,7 +254,7 @@ class Aqute(Generic[TData, TResult]):
 
         return task_id
 
-    def set_all_tasks_added(self) -> None:
+    def finish_submitting(self) -> None:
         """
         Sets the internal flag to indicate all tasks have been added.
         """
@@ -263,7 +264,7 @@ class Aqute(Generic[TData, TResult]):
         self._all_tasks_added = True
         self._load_changed.set()
 
-    async def apply_to_each(
+    async def iter_results(
         self, tasks_data: Iterable[TData] | AsyncIterable[TData]
     ) -> AsyncGenerator[AquteTask[TData, TResult]]:
         """
@@ -339,9 +340,9 @@ class Aqute(Generic[TData, TResult]):
             finally:
                 if isinstance(source, Generator):
                     source.close()
-        self.set_all_tasks_added()
+        self.finish_submitting()
 
-    async def apply_to_all(
+    async def process_all(
         self, tasks_data: Iterable[TData] | AsyncIterable[TData]
     ) -> list[AquteTask[TData, TResult]]:
         """
@@ -358,11 +359,11 @@ class Aqute(Generic[TData, TResult]):
             A list of `AquteTask` objects with results, ordered as in the
             input iterable.
         """
-        async with contextlib.aclosing(self.apply_to_each(tasks_data)) as results:
+        async with contextlib.aclosing(self.iter_results(tasks_data)) as results:
             result = [task async for task in results]
         return sorted(result, key=lambda task: int(task.task_id))
 
-    async def get_task_result(self) -> AquteTask[TData, TResult]:
+    async def get_result(self) -> AquteTask[TData, TResult]:
         """
         Get first available task result in the result queue
 
@@ -392,7 +393,7 @@ class Aqute(Generic[TData, TResult]):
             with contextlib.suppress(asyncio.CancelledError):
                 await result
 
-    def extract_all_results(self) -> list[AquteTask[TData, TResult]]:
+    def drain_results(self) -> list[AquteTask[TData, TResult]]:
         """
         Retrieves all the results available in the result queue.
 
@@ -531,3 +532,70 @@ class Aqute(Generic[TData, TResult]):
         tb: TracebackType | None,
     ) -> None:
         await self.stop()
+
+    def set_all_tasks_added(self) -> None:
+        """Deprecated; use finish_submitting()."""
+        warnings.warn(
+            "set_all_tasks_added() is deprecated; use finish_submitting()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.finish_submitting()
+
+    async def wait_till_end(self) -> None:
+        """Deprecated; use finish()."""
+        warnings.warn(
+            "wait_till_end() is deprecated; use finish()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self.finish()
+
+    async def start_and_wait(self) -> None:
+        """Deprecated; use run()."""
+        warnings.warn(
+            "start_and_wait() is deprecated; use run()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self.run()
+
+    async def get_task_result(self) -> AquteTask[TData, TResult]:
+        """Deprecated; use get_result()."""
+        warnings.warn(
+            "get_task_result() is deprecated; use get_result()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await self.get_result()
+
+    def extract_all_results(self) -> list[AquteTask[TData, TResult]]:
+        """Deprecated; use drain_results()."""
+        warnings.warn(
+            "extract_all_results() is deprecated; use drain_results()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.drain_results()
+
+    async def apply_to_all(
+        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+    ) -> list[AquteTask[TData, TResult]]:
+        """Deprecated; use process_all()."""
+        warnings.warn(
+            "apply_to_all() is deprecated; use process_all()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await self.process_all(tasks_data)
+
+    def apply_to_each(
+        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+    ) -> AsyncGenerator[AquteTask[TData, TResult]]:
+        """Deprecated; use iter_results(). Return its generator so aclose propagates."""
+        warnings.warn(
+            "apply_to_each() is deprecated; use iter_results()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.iter_results(tasks_data)

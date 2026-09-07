@@ -28,7 +28,7 @@ async def test_start_timeout():
 async def test_wait_on_empty_load():
     aqute = Aqute(workers_count=2, handle_coro=non_failing_handler)
     with pytest.raises(AquteError) as exc:
-        await aqute.wait_till_end()
+        await aqute.finish()
     assert str(exc.value).startswith("Cannot")
 
 
@@ -76,7 +76,7 @@ async def test_too_many_failed_tasks_error(retry_count: int):
 
     with pytest.raises(AquteTooManyTasksFailedError) as exc:
         async with aqute:
-            await aqute.wait_till_end()
+            await aqute.finish()
     assert "limit reached: 2" in str(exc.value)
 
 
@@ -90,7 +90,7 @@ async def test_too_many_failed_tasks_error_with_helper_each():
     )
 
     with pytest.raises(AquteTooManyTasksFailedError) as exc:
-        async for _ in aqute.apply_to_each(range(1, 6)):
+        async for _ in aqute.iter_results(range(1, 6)):
             pass
     assert "limit reached: 1" in str(exc.value)
 
@@ -105,7 +105,7 @@ async def test_too_many_failed_tasks_error_with_helper_all():
     )
 
     with pytest.raises(AquteTooManyTasksFailedError) as exc:
-        await aqute.apply_to_all(range(1, 6))
+        await aqute.process_all(range(1, 6))
     assert "limit reached: 1" in str(exc.value)
 
 
@@ -122,4 +122,4 @@ async def test_not_enough_failed_tasks_for_error(retry_count: int):
         await aqute.add_task(i)
 
     async with aqute:
-        await aqute.wait_till_end()
+        await aqute.finish()

@@ -14,11 +14,11 @@ async def echo(value: int) -> int:
 async def test_wait_after_all_results_were_consumed():
     async with Aqute(echo, 1) as engine:
         await engine.add_task(7)
-        assert (await engine.get_task_result()).result == 7
+        assert (await engine.get_result()).result == 7
         async with asyncio.timeout(1):
-            await engine.wait_till_end()
+            await engine.finish()
         with pytest.raises(AquteError, match="without another task result"):
-            await engine.get_task_result()
+            await engine.get_result()
 
 
 @pytest.mark.asyncio
@@ -26,8 +26,8 @@ async def test_wait_after_starting_empty_load():
     async with Aqute(echo, 1) as engine:
         await asyncio.sleep(0)
         async with asyncio.timeout(1):
-            await engine.wait_till_end()
-    assert engine.extract_all_results() == []
+            await engine.finish()
+    assert engine.drain_results() == []
 
 
 @pytest.mark.asyncio
@@ -77,7 +77,7 @@ async def test_failure_limit_cancels_other_handlers():
     await engine.add_task(1)
     async with asyncio.timeout(1):
         with pytest.raises(AquteTooManyTasksFailedError):
-            await engine.start_and_wait()
+            await engine.run()
     assert cleaned.is_set()
     with pytest.raises(AquteTooManyTasksFailedError):
         await engine.stop()
@@ -94,7 +94,7 @@ async def test_failure_limit_unblocks_bounded_producer():
             async with engine:
                 for value in range(100):
                     await engine.add_task(value)
-                await engine.wait_till_end()
+                await engine.finish()
 
 
 @pytest.mark.asyncio
@@ -106,8 +106,8 @@ async def test_stop_resets_failure_count_and_preserves_results():
     for value in range(2):
         async with engine:
             await engine.add_task(value)
-            await engine.wait_till_end()
-    results = engine.extract_all_results()
+            await engine.finish()
+    results = engine.drain_results()
     assert [task.data for task in results] == [0, 1]
     assert all(isinstance(task.error, ValueError) for task in results)
 
@@ -121,7 +121,7 @@ async def test_rate_limiter_failure_reaches_caller():
     engine = Aqute(echo, 1, rate_limiter=FailingLimiter())
     async with asyncio.timeout(1):
         with pytest.raises(ExceptionGroup) as caught:
-            await engine.apply_to_all([1])
+            await engine.process_all([1])
     assert len(caught.value.exceptions) == 1
     assert isinstance(caught.value.exceptions[0], RuntimeError)
     assert str(caught.value.exceptions[0]) == "limiter unavailable"
@@ -151,7 +151,7 @@ async def test_rate_limiter_failure_unblocks_retry_on_full_queue():
         ) as engine:
             for value in range(4):
                 await engine.add_task(value)
-            await engine.wait_till_end()
+            await engine.finish()
 
     operation = asyncio.create_task(run())
     try:
@@ -179,7 +179,7 @@ async def test_operations_after_load_cancellation_raise_aqute_error():
     with pytest.raises(AquteError, match="cancelled"):
         await engine.add_task(1)
     with pytest.raises(AquteError, match="cancelled"):
-        await engine.get_task_result()
+        await engine.get_result()
     await engine.stop()
 
 
@@ -250,7 +250,7 @@ async def test_nonpositive_timeout_does_not_call_handler(task_timeout):
         calls.append(value)
         return value
 
-    results = await Aqute(handler, 1, task_timeout_seconds=task_timeout).apply_to_all(
+    results = await Aqute(handler, 1, task_timeout_seconds=task_timeout).process_all(
         [1]
     )
     assert calls == []

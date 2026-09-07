@@ -28,7 +28,7 @@ async def test_backoff_is_permitted_attempt_only_and_outside_timeout():
     engine = Aqute(
         handler, 1, retry_count=2, retry_delay=delay, task_timeout_seconds=0.005
     )
-    results = await engine.apply_to_all([7])
+    results = await engine.process_all([7])
     assert results[0].result == 7 and results[0].success
     assert selected == [(1, failures[0]), (2, failures[1])]
     assert all(later - earlier >= 0.025 for earlier, later in pairwise(calls))
@@ -56,7 +56,7 @@ async def test_delay_is_not_called_for_exhausted_or_excluded_retries(excluded):
         retry_delay=delay,
         errors_to_not_retry=ValueError if excluded else None,
     )
-    result = (await engine.apply_to_all([7]))[0]
+    result = (await engine.process_all([7]))[0]
     assert isinstance(result.error, ValueError)
     assert calls == (1 if excluded else 2)
     assert delays == ([] if excluded else [(1, "7")])
@@ -76,7 +76,7 @@ async def test_invalid_delay_propagates_as_worker_failure(seconds):
 
     engine = Aqute(handler, 1, retry_count=1, retry_delay=delay)
     with pytest.raises(ExceptionGroup) as caught:
-        await engine.apply_to_all([1])
+        await engine.process_all([1])
     assert len(caught.value.exceptions) == 1
     error = caught.value.exceptions[0]
     assert isinstance(error, ValueError)
@@ -98,7 +98,7 @@ async def test_backoff_does_not_block_other_available_worker():
         return 0.05
 
     engine = Aqute(handler, 2, retry_count=1, retry_delay=delay)
-    results = [result async for result in engine.apply_to_each([1, 2])]
+    results = [result async for result in engine.iter_results([1, 2])]
     assert [result.result for result in results] == [2, 1]
     assert attempts == {1: 2, 2: 1}
 
@@ -119,14 +119,14 @@ async def test_cancel_during_backoff_prevents_another_attempt():
         return 10
 
     engine = Aqute(handler, 1, retry_count=2, retry_delay=delay)
-    operation = asyncio.create_task(engine.apply_to_all([1]))
+    operation = asyncio.create_task(engine.process_all([1]))
     async with asyncio.timeout(1):
         await delaying.wait()
         operation.cancel()
         with pytest.raises(asyncio.CancelledError):
             await operation
         assert calls == [1]
-        assert (await engine.apply_to_all([2]))[0].result == 2
+        assert (await engine.process_all([2]))[0].result == 2
     assert calls == [1, 2]
 
 
@@ -156,7 +156,7 @@ async def test_delayed_retries_obey_rate_limit_and_bounded_streaming():
     )
     async with asyncio.timeout(2):
         results = []
-        async for result in engine.apply_to_each(range(4)):
+        async for result in engine.iter_results(range(4)):
             results.append(result)
             await asyncio.sleep(0.025)
     assert all(result.success for result in results)

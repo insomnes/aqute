@@ -24,7 +24,7 @@ async def test_priority_queue():
     await aqute.add_task(1, task_priority=1)
 
     async with aqute:
-        await aqute.wait_till_end()
+        await aqute.finish()
 
-    results = aqute.extract_all_results()
+    results = aqute.drain_results()
     assert [t.data for t in results] == [1, 5, 10, 10, 1_000_000]

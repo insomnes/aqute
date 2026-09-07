@@ -37,10 +37,10 @@ async def test_pending_excludes_blocked_submission_and_running_includes_handler(
                 snapshot.running = 99  # ty: ignore[invalid-assignment]
             release.set()
             await submitting
-            await engine.wait_till_end()
+            await engine.finish()
             assert engine.counters == AquteCounters(0, 0, 3, 0, 0)
             assert snapshot == AquteCounters(1, 1, 0, 0, 0)
-            assert len(engine.extract_all_results()) == 3
+            assert len(engine.drain_results()) == 3
             assert engine.counters.succeeded == 3
         finally:
             submitting.cancel()
@@ -63,20 +63,20 @@ async def test_terminal_counts_survive_result_consumption_and_reset_on_reuse():
     async with engine:
         for value in range(3):
             await engine.add_task(value)
-        await engine.wait_till_end()
+        await engine.finish()
         snapshot = AquteCounters(0, 0, 2, 1, 2)
         assert engine.counters == snapshot
-        first = await engine.get_task_result()
+        first = await engine.get_result()
         assert first.data in range(3)
         assert engine.counters == snapshot
         # Retain the other two results across stop().
     assert engine.counters == AquteCounters(0, 0, 0, 0, 0)
-    assert len(engine.extract_all_results()) == 2
+    assert len(engine.drain_results()) == 2
     async with engine:
         await engine.add_task(3)
-        await engine.wait_till_end()
+        await engine.finish()
         assert engine.counters == AquteCounters(0, 0, 1, 0, 0)
-        assert (await engine.get_task_result()).result == 3
+        assert (await engine.get_result()).result == 3
 
 
 @pytest.mark.asyncio
@@ -116,9 +116,9 @@ async def test_retry_count_waits_for_handler_after_backoff_and_rate_limit():
             await retry_rate_wait.wait()
             assert engine.counters == AquteCounters(0, 1, 0, 0, 0)
             release.set()
-            await engine.wait_till_end()
+            await engine.finish()
             assert engine.counters == AquteCounters(0, 0, 1, 0, 1)
-            assert (await engine.get_task_result()).result == 7
+            assert (await engine.get_result()).result == 7
     assert calls == 2
 
 
@@ -153,9 +153,9 @@ async def test_terminal_counts_include_results_waiting_for_consumption():
     async with engine:
         for value in range(3):
             await engine.add_task(value)
-        results = [await engine.get_task_result() for _ in range(2)]
-        await engine.wait_till_end()
+        results = [await engine.get_result() for _ in range(2)]
+        await engine.finish()
         assert engine.counters == AquteCounters(0, 0, 3, 0, 0)
-        results.append(await engine.get_task_result())
+        results.append(await engine.get_result())
         assert [result.result for result in results] == [0, 1, 2]
         assert engine.counters == AquteCounters(0, 0, 3, 0, 0)

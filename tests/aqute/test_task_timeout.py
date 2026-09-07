@@ -88,9 +88,9 @@ async def test_timeout(case: TaskTimeoutTestCase):
         await aqute.add_task(i)
 
     async with aqute:
-        await aqute.wait_till_end()
+        await aqute.finish()
 
-    handled_tasks = aqute.extract_all_results()
+    handled_tasks = aqute.drain_results()
     assert len(handled_tasks) == total
 
     errors = [t.error for t in handled_tasks if not t.success]

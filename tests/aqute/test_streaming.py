@@ -30,9 +30,9 @@ async def test_helpers_complete_with_bounded_queues(collect, asynchronous, value
     )
     async with asyncio.timeout(1):
         if collect:
-            results = await engine.apply_to_all(items)
+            results = await engine.process_all(items)
         else:
-            results = [result async for result in engine.apply_to_each(items)]
+            results = [result async for result in engine.iter_results(items)]
     assert [result.result for result in results] == values
     assert all(result.success for result in results)
 
@@ -47,7 +47,7 @@ async def test_first_result_precedes_async_source_exhaustion():
         yield 2
 
     engine = Aqute(echo, 1)
-    async with contextlib.aclosing(engine.apply_to_each(source())) as results:
+    async with contextlib.aclosing(engine.iter_results(source())) as results:
         async with asyncio.timeout(1):
             assert (await anext(results)).result == 1
             release.set()
@@ -66,7 +66,7 @@ async def test_iterator_yields_in_completion_order():
         return value
 
     engine = Aqute(handler, 2, input_task_queue_size=1)
-    async with contextlib.aclosing(engine.apply_to_each([1, 2])) as results:
+    async with contextlib.aclosing(engine.iter_results([1, 2])) as results:
         async with asyncio.timeout(1):
             assert (await anext(results)).result == 2
             release.set()
@@ -107,26 +107,26 @@ async def test_slow_consumption_bounds_production_and_handlers(manual):
                 async def produce():
                     for value in source():
                         await engine.add_task(value)
-                    engine.set_all_tasks_added()
+                    engine.finish_submitting()
 
                 producer = asyncio.create_task(produce())
                 try:
-                    first = await engine.get_task_result()
+                    first = await engine.get_result()
                     with pytest.raises(TimeoutError):
                         async with asyncio.timeout(0.05):
                             await overflow.wait()
                     assert 1 <= handled <= produced <= bound
                     results = [first]
                     for _ in range(99):
-                        results.append(await engine.get_task_result())
+                        results.append(await engine.get_result())
                     await producer
-                    await engine.wait_till_end()
+                    await engine.finish()
                 finally:
                     producer.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await producer
         else:
-            async with contextlib.aclosing(engine.apply_to_each(source())) as stream:
+            async with contextlib.aclosing(engine.iter_results(source())) as stream:
                 first = await anext(stream)
                 with pytest.raises(TimeoutError):
                     async with asyncio.timeout(0.05):
@@ -161,7 +161,7 @@ async def test_retries_complete_with_slow_consumption_and_bounded_queues(priorit
     )
     async with asyncio.timeout(2):
         results = []
-        async for result in engine.apply_to_each(range(20)):
+        async for result in engine.iter_results(range(20)):
             results.append(result)
             await asyncio.sleep(0.001)
     assert all(result.success for result in results)
@@ -192,7 +192,7 @@ async def test_source_failure_cancels_active_handler():
     engine = Aqute(handler, 1, input_task_queue_size=1)
     async with asyncio.timeout(1):
         with pytest.raises(ValueError, match="source failed"):
-            await engine.apply_to_all(source())
+            await engine.process_all(source())
     assert cleaned.is_set()
 
 
@@ -228,12 +228,12 @@ async def test_iterator_close_cleans_source_and_handler(asynchronous):
     engine = Aqute(handler, 1, input_task_queue_size=1, result_queue=asyncio.Queue(1))
     items = async_source() if asynchronous else source()
     async with asyncio.timeout(1):
-        async with contextlib.aclosing(engine.apply_to_each(items)) as results:
+        async with contextlib.aclosing(engine.iter_results(items)) as results:
             assert (await anext(results)).result == 0
             await started.wait()
     assert cleaned.is_set()
     assert source_closed.is_set()
-    assert (await engine.apply_to_all([0]))[0].result == 0
+    assert (await engine.process_all([0]))[0].result == 0
 
 
 @pytest.mark.asyncio
@@ -250,14 +250,14 @@ async def test_cancelling_collection_cleans_waiting_source():
             cleaned.set()
 
     engine = Aqute(echo, 1)
-    operation = asyncio.create_task(engine.apply_to_all(source()))
+    operation = asyncio.create_task(engine.process_all(source()))
     async with asyncio.timeout(1):
         await started.wait()
         operation.cancel()
         with pytest.raises(asyncio.CancelledError):
             await operation
     assert cleaned.is_set()
-    assert (await engine.apply_to_all([1]))[0].success
+    assert (await engine.process_all([1]))[0].success
 
 
 @pytest.mark.asyncio
@@ -273,12 +273,12 @@ async def test_drain_retained_results_before_reusing_helper():
 
     engine = Aqute(handler, 2)
     async with asyncio.timeout(1):
-        async with contextlib.aclosing(engine.apply_to_each([1, 2, 3])) as results:
+        async with contextlib.aclosing(engine.iter_results([1, 2, 3])) as results:
             first = await anext(results)
             await completed.wait()
             # Waiting for the public run drains completed work into retained results.
-            await engine.wait_till_end()
-        retained = engine.extract_all_results()
+            await engine.finish()
+        retained = engine.drain_results()
         assert sorted([first.data, *[result.data for result in retained]]) == [1, 2, 3]
-        fresh = await engine.apply_to_all([4])
+        fresh = await engine.process_all([4])
     assert [result.result for result in fresh] == [4]

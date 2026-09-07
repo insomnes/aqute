@@ -149,14 +149,14 @@ async def add_tasks(engine: Aqute, n: int):
 
 
 def check_susccess(aqute: Aqute, should_be: int):
-    successes = [t for t in aqute.extract_all_results() if t.success]
+    successes = [t for t in aqute.drain_results() if t.success]
     assert len(successes) == should_be
 
 
 def check_susccess_and_fails(
     aqute: Aqute, success_count: int, fails_count
 ) -> list[AquteTask]:
-    results = aqute.extract_all_results()
+    results = aqute.drain_results()
     successes = [t for t in results if t.success]
     fails = [t for t in results if not t.success]
     assert len(successes) == success_count and len(fails) == fails_count
@@ -359,7 +359,7 @@ async def test_retry(case: RetryTestCase):
     )
     async with aqute:
         await add_tasks(aqute, case.expected_successes + case.expected_fails)
-        await aqute.wait_till_end()
+        await aqute.finish()
 
     res = check_susccess_and_fails(aqute, case.expected_successes, case.expected_fails)
 

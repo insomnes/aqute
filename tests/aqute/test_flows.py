@@ -43,14 +43,14 @@ async def add_tasks(engine: Aqute, n: int):
 
 
 def check_susccess(aqute: Aqute, should_be: int):
-    successes = [t for t in aqute.extract_all_results() if t.success]
+    successes = [t for t in aqute.drain_results() if t.success]
     assert len(successes) == should_be
 
 
 def check_susccess_and_fails(
     aqute: Aqute, success_count: int, fails_count
 ) -> list[AquteTask]:
-    results = aqute.extract_all_results()
+    results = aqute.drain_results()
     successes = [t for t in results if t.success]
     fails = [t for t in results if not t.success]
     assert len(successes) == success_count and len(fails) == fails_count
@@ -61,7 +61,7 @@ def check_susccess_and_fails(
 async def test_most_verbose_way():
     aqute = Aqute(workers_count=2, handle_coro=non_failing_handler)
     await add_tasks(aqute, 10)
-    aqute.set_all_tasks_added()
+    aqute.finish_submitting()
     await aqute.start()
     await aqute.stop()
 
@@ -73,7 +73,7 @@ async def test_simple_way():
     aqute = Aqute(workers_count=2, handle_coro=non_failing_handler)
     async with aqute:
         await add_tasks(aqute, 10)
-        await aqute.wait_till_end()
+        await aqute.finish()
 
     check_susccess(aqute, 10)
 
@@ -83,7 +83,7 @@ async def test_simple_way_add_before():
     aqute = Aqute(workers_count=2, handle_coro=non_failing_handler)
     await add_tasks(aqute, 10)
     async with aqute:
-        await aqute.wait_till_end()
+        await aqute.finish()
 
     check_susccess(aqute, 10)
 
@@ -92,7 +92,7 @@ async def test_simple_way_add_before():
 async def test_simple_verbose():
     aqute = Aqute(workers_count=2, handle_coro=non_failing_handler)
     await add_tasks(aqute, 10)
-    await aqute.start_and_wait()
+    await aqute.run()
     await aqute.stop()
 
     check_susccess(aqute, 10)
@@ -103,7 +103,7 @@ async def test_start_without_await():
     aqute = Aqute(workers_count=2, handle_coro=non_failing_handler)
     aqute.start()
     await add_tasks(aqute, 10)
-    await aqute.wait_till_end()
+    await aqute.finish()
     await aqute.stop()
 
     check_susccess(aqute, 10)
@@ -114,7 +114,7 @@ async def test_failed_tasks():
     aqute = Aqute(workers_count=2, handle_coro=failing_handler)
     async with aqute:
         await add_tasks(aqute, 10)
-        await aqute.wait_till_end()
+        await aqute.finish()
 
     check_susccess_and_fails(aqute, 9, 1)
 
@@ -128,6 +128,6 @@ async def test_total_failed_tasks_limit_do_not_intervene():
     )
     async with aqute:
         await add_tasks(aqute, 10)
-        await aqute.wait_till_end()
+        await aqute.finish()
 
     check_susccess_and_fails(aqute, 9, 1)

@@ -38,7 +38,7 @@ async def add_tasks(engine: Aqute, n: int):
 
 
 @pytest.mark.asyncio
-async def test_apply_to_each():
+async def test_iter_results():
     aqute = Aqute(
         workers_count=2,
         handle_coro=get_specific_failing_handler(),
@@ -46,7 +46,7 @@ async def test_apply_to_each():
     )
     results = []
 
-    async for r in aqute.apply_to_each(range(10)):
+    async for r in aqute.iter_results(range(10)):
         results.append(r)
 
     successes = [t for t in results if t.success]
@@ -57,13 +57,13 @@ async def test_apply_to_each():
 
 
 @pytest.mark.asyncio
-async def test_apply_to_all():
+async def test_process_all():
     aqute = Aqute(
         workers_count=2,
         handle_coro=get_specific_failing_handler(),
         retry_count=2,
     )
-    results = await aqute.apply_to_all(range(10))
+    results = await aqute.process_all(range(10))
 
     successes = [t for t in results if t.success]
     assert len(successes) == 9
@@ -76,7 +76,7 @@ async def test_apply_to_all():
 
 
 @pytest.mark.asyncio
-async def test_apply_to_all_timeouts():
+async def test_process_all_timeouts():
     async def slow_handler(data: int) -> str:
         await asyncio.sleep(0.01 * data)
         return f"handled-{data}"
@@ -88,7 +88,7 @@ async def test_apply_to_all_timeouts():
         task_timeout_seconds=0.06,
         errors_to_not_retry=AquteTaskTimeoutError,
     )
-    results = await aqute.apply_to_all(range(1, 11))
+    results = await aqute.process_all(range(1, 11))
 
     successes = [t for t in results if t.success]
     assert len(successes) == 5

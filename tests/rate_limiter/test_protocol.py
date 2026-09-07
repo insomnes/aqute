@@ -27,5 +27,5 @@ async def test_rate_limiter_protocol():
 
     limiter = StoringRateLimiter()
     aq = Aqute(handler, 1, rate_limiter=limiter)
-    await aq.apply_to_all([1, 2])
+    await aq.process_all([1, 2])
     assert limiter.store == answer

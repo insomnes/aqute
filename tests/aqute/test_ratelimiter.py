@@ -46,7 +46,7 @@ async def test_with_ratelimiter(rl_name: str):
     )
 
     start = perf_counter()
-    await aqute.apply_to_all(range(11))
+    await aqute.process_all(range(11))
     elapsed_time = perf_counter() - start
 
     assert 0.4 < elapsed_time < 0.5

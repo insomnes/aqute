@@ -64,7 +64,7 @@ async def main():
         return i * 2
 
     aqute = Aqute(handle_coro=handler, workers_count=2)
-    result = await aqute.apply_to_all(range(10))
+    result = await aqute.process_all(range(10))
     # Do not forget to extract result data from wrapper object with <result> property
     assert [t.result for t in result] == [i * 2 for i in range(10)]
 
@@ -79,8 +79,8 @@ Aqute is easy to use for both simple and advanced workflows.
 ## Incremental input and bounded buffering
 
 Both helpers accept synchronous `Iterable` and asynchronous `AsyncIterable` inputs.
-They start processing while reading input. `apply_to_all()` collects a list in input
-order; `apply_to_each()` yields terminal results in completion order.
+They start processing while reading input. `process_all()` collects a list in input
+order; `iter_results()` yields terminal results in completion order.
 
 Set both `input_task_queue_size=I` and `result_queue=asyncio.Queue(R)` to positive
 values to bound buffering. With `W` workers and one producer, Aqute retains at most
@@ -88,7 +88,7 @@ values to bound buffering. With `W` workers and one producer, Aqute retains at m
 yielded item. The internal worker-result queue uses the same capacity `R`. Slow
 result consumption therefore blocks further processing and input admission.
 This is an item-count bound, not a byte limit. It excludes items retained by the
-source or caller and the growing list returned by `apply_to_all()`. A queue size
+source or caller and the growing list returned by `process_all()`. A queue size
 of zero is unlimited.
 
 ```python
@@ -106,7 +106,7 @@ async def main():
 
     engine = Aqute(handle, 4, input_task_queue_size=8,
                    result_queue=asyncio.Queue(8))
-    async with aclosing(engine.apply_to_each(source())) as results:
+    async with aclosing(engine.iter_results(source())) as results:
         async for task in results:
             if task.error is not None:
                 raise task.error
@@ -121,7 +121,7 @@ for its producer and workers to stop. Aqute closes synchronous and asynchronous
 generator sources; callers own other source resources. Source exceptions propagate
 to the caller after cleanup. Handler failures remain values in `AquteTask.error`.
 Before reusing an engine with a batch helper, drain retained results with
-`extract_all_results()`. Otherwise, a helper can consume results from the previous
+`drain_results()`. Otherwise, a helper can consume results from the previous
 run. Use a fresh engine when those results need to stay in their original queue.
 For asynchronous input, `start_timeout_seconds` includes the wait for the first
 item from the source.
@@ -132,7 +132,7 @@ preempt an occupied worker. When manually submitting with finite queues, consume
 results concurrently with submission and completion waits.
 
 ## Simple batch processing
-The easiest way to use Aqute is `apply_to_all()` method:
+The easiest way to use Aqute is `process_all()` method:
 
 ```python
 import asyncio
@@ -171,7 +171,7 @@ async def main():
     # This will apply handler to every item of iterable and return result as list
     # with task results ordered as input iterable
     aqute = Aqute(handle_coro=handler, workers_count=10, retry_count=2)
-    result = await aqute.apply_to_all(input_data)
+    result = await aqute.process_all(input_data)
     # Each task result is wrapped in AquteTask instance
     assert [t.data for t in result] == input_data
 
@@ -191,7 +191,7 @@ asyncio.run(main())
 
     done, with_errors = [], []
     # You can determine final task status with specific success field
-    async for task in aqute.apply_to_each(input_data):
+    async for task in aqute.iter_results(input_data):
         if task.success:
             done.append(task)
         else:
@@ -248,7 +248,7 @@ async def main():
     async def collect_results():
         # You can collect and handle results externally too
         while len(result) < TASK_LIMIT:
-            task = await aqute.get_task_result()
+            task = await aqute.get_result()
             result.append(task)
             counts = aqute.counters
             logger.info("Pending: %s; running: %s; succeeded: %s; failed: %s",
@@ -258,7 +258,7 @@ async def main():
         async with asyncio.TaskGroup() as group:
             group.create_task(add_tasks())
             group.create_task(collect_results())
-        await aqute.wait_till_end()
+        await aqute.finish()
 
     logger.info(f"Done tasks: {len(result):_}/{TASK_LIMIT:_}")
 
@@ -277,7 +277,7 @@ You can also add RateLimiter instance to Aqute for rate limiting:
     r_limit = TokenBucketRateLimiter(5, 1)
     aqute = Aqute(handle_coro=handler, workers_count=10, rate_limiter=r_limit)
     result = []
-    async for task in aqute.apply_to_each(input_data):
+    async for task in aqute.iter_results(input_data):
         result.append(task)
 
     assert len(result) == len(input_data)
@@ -350,11 +350,11 @@ This can be most useful if not all of your tasks are available at the start:
             await aqute.add_task(i, task_id=f"My task id: {i}")
 
         # Set waiting for finalization when you have all tasks added
-        await aqute.wait_till_end()
+        await aqute.finish()
 
     # You can simply extract all results from queue with this method if aqute has 
     # finished, returns the list of AquteTask
-    for tr in aqute.extract_all_results():
+    for tr in aqute.drain_results():
         logger.info(f"{tr.success, tr.error, tr.result}")
 ```
 
@@ -380,7 +380,7 @@ This can be most useful if not all of your tasks are available at the start:
 
     # Now wait till all finished via specific method, this also notifies
     # aqute that we have added all tasks
-    await aqute.wait_till_end()
+    await aqute.finish()
     assert result_q.qsize() == 5
     # Stop the aqute
     await aqute.stop()
@@ -396,7 +396,7 @@ This can be most useful if not all of your tasks are available at the start:
         # Start consumers before filling a bounded input queue.
         for i in range(10):
             await aqute.add_task(i)
-        await aqute.wait_till_end()
+        await aqute.finish()
 
     assert aqute.result_queue.qsize() == 10
 ```
@@ -421,9 +421,9 @@ You can prioritize tasks by setting `use_priority_queue` flag:
     await aqute.add_task(1, task_priority=1)
 
     async with aqute:
-        await aqute.wait_till_end()
+        await aqute.finish()
 
-    results = aqute.extract_all_results()
+    results = aqute.drain_results()
     assert [t.data for t in results] == [1, 5, 10, 10, 1_000_000]
 ```
 
@@ -479,7 +479,7 @@ for i in range(10):
 # This will raise AquteTooManyTasksFailedError cause we have enough failed tasks
 # before all tasks are processed
 async with aqute:
-    await aqute.wait_till_end()
+    await aqute.finish()
 ```
 
 ## Barebone queue via Foreman
@@ -544,7 +544,7 @@ If no tasks will be provided, and you've set the timeout, Aqute will intentional
     aqute = Aqute(handle_coro=handler, workers_count=10)
 
     try:
-        await aqute.wait_till_end()
+        await aqute.finish()
     except AquteError as exc:
         logger.error(f"Aqute cannot be waited here: {exc}")
 ```
@@ -569,6 +569,27 @@ tag (with an optional `v` prefix), and builds with `uv_build`. PyPI publishing u
 GitHub's trusted publishing identity.
 
 # Misc
+## Public method names and compatibility
+
+Use the names below in new code. Existing names remain compatible wrappers and
+emit `DeprecationWarning` at the caller. Removal will occur only in an announced
+breaking release; no removal version is currently scheduled.
+
+| Deprecated name | Replacement | Behavior |
+| --- | --- | --- |
+| `set_all_tasks_added()` | `finish_submitting()` | Signal that input submission is complete. |
+| `wait_till_end()` | `await finish()` | Signal input completion and wait for processing. |
+| `start_and_wait()` | `await run()` | Start processing, signal completion, and wait. |
+| `get_task_result()` | `await get_result()` | Wait for one available result. |
+| `extract_all_results()` | `drain_results()` | Remove currently available results without waiting. |
+| `apply_to_all(items)` | `await process_all(items)` | Return a list in input order. |
+| `apply_to_each(items)` | `iter_results(items)` | Return an async iterator in completion order. |
+
+`start()`, `stop()`, and `add_task()` keep their names. `finish_submitting()` is a
+completion signal, not a gate that rejects later submissions while work remains.
+Stop producers before calling it or `finish()`. `run()` fits work submitted before
+starting. Use `start()` or the context manager before filling bounded input queues.
+
 ## Runtime counters
 
 `engine.counters` returns an immutable `AquteCounters` snapshot for the current run.
@@ -586,7 +607,7 @@ terminal outcome while still waiting to publish it, so `running` is not disjoint
 from `succeeded` and `failed`. `stop()` resets all counts after cleanup. Completed
 results retained across runs do not become counts in the next run. The helpers
 call `stop()` on exit; inspect their counters during iteration, or use the manual
-flow to inspect them after `wait_till_end()` and before `stop()`.
+flow to inspect them after `finish()` and before `stop()`.
 
 ## Instance reuse after `stop()`
 
@@ -598,7 +619,7 @@ Cancelling the task returned by `start()` also waits for worker cleanup.
 Handler exceptions remain in `AquteTask.error` and follow the configured retry rules.
 Unexpected worker failures, such as a custom rate limiter raising an exception,
 stop the worker group and propagate as an `ExceptionGroup`.
-`get_task_result()` raises `AquteError` when processing has finished and no results
+`get_result()` raises `AquteError` when processing has finished and no results
 remain. It propagates a processing failure when there is no queued result to return.
 
 ```python
@@ -607,12 +628,12 @@ remain. It propagates a processing failure when there is no queued result to ret
     async with aqute:
         for i in range(10):
             await aqute.add_task(i)
-        await aqute.wait_till_end()
+        await aqute.finish()
 
     async with aqute:
         for i in range(10, 20):
             await aqute.add_task(i)
-        await aqute.wait_till_end()
+        await aqute.finish()
 
     assert aqute.result_queue.qsize() == 20
 ```
