@@ -1,6 +1,8 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Generic, NamedTuple, TypeVar
+from typing import Generic, NamedTuple, TypeVar, cast
+
+from aqute.errors import AquteError
 
 END_MARKER = object()
 
@@ -30,6 +32,19 @@ class AquteTask(Generic[TData, TResult]):
 
     _remaining_tries: int = 0
     _priority: int = 1_000_000
+
+    def unwrap(self) -> TResult:
+        """Return a successful terminal result, including None, or raise its error.
+
+        Call this after receiving a completed task. A pending task raises AquteError.
+        Calling unwrap after process_all does not make processing fail fast:
+        the batch has already completed.
+        """
+        if self.error is not None:
+            raise self.error
+        if not self.success:
+            raise AquteError(f"Task {self.task_id} is not complete")
+        return cast(TResult, self.result)
 
     def __lt__(self, other: "AquteTask") -> bool:
         """Used for priority queue sorting"""

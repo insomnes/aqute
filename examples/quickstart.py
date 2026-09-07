@@ -12,12 +12,7 @@ async def handle(value: int) -> int:
 
 async def main() -> list[int]:
     tasks = await Aqute(handle, workers_count=4).process_all(range(10))
-    values = []
-    for task in tasks:
-        if task.error is not None:
-            raise task.error
-        assert task.result is not None
-        values.append(task.result)
+    values = [task.unwrap() for task in tasks]
     assert values == [value * 2 for value in range(10)]
     return values
 
