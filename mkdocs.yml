@@ -8,6 +8,7 @@ nav:
   - Quickstart: index.md
   - Usage: usage.md
   - Streaming: streaming.md
+  - Retry and progress: retry_progress.md
   - HTTP client: http_client.md
   - Service shutdown: service_shutdown.md
   - Development: development.md

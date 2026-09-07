@@ -153,7 +153,7 @@ attempts; its default is zero. `specific_errors_to_retry` selects exception type
 
 `retry_delay(failed_attempt, error)` optionally returns finite, nonnegative seconds.
 The failed-attempt number is 1-based. The callback runs only when another attempt
-is permitted. The default delay is zero. The [streaming example](streaming.md)
+is permitted. The default delay is zero. The [retry example](retry_progress.md)
 contains a capped exponential-backoff callback with jitter.
 
 A delay occupies its worker but is outside the handler timeout. Other workers can
@@ -232,8 +232,9 @@ terminal counts. `stop()` resets all counts after cleanup. Retained results do n
 become counts in a later run.
 
 Helpers stop on exit. Inspect their counters during iteration, or use the manual
-flow to inspect them after `finish()` and before `stop()`. Both the streaming and
-service examples log these snapshots.
+flow to inspect them after `finish()` and before `stop()`. The
+[retry](retry_progress.md) and [service](service_shutdown.md) examples log these
+snapshots.
 
 ## Public names and compatibility
 
@@ -307,8 +308,8 @@ source instead of reconstructing the API from older examples.
 | Application need | API |
 | --- | --- |
 | A finite batch with an ordered result list | `await engine.process_all(items)` |
-| Results as they complete, with incremental consumption | `async with engine.iter_results(items) as results`, then iterate `results` inside the context |
-| Separate producer and consumer ownership | Follow [manual processing and shutdown](#manual-processing-and-shutdown) |
+| Results in completion order, with bounded buffering and incremental consumption | `async with engine.iter_results(items) as results`, then iterate `results` inside the context |
+| Continuous submission with separate producer and consumer ownership | Follow [manual processing and shutdown](#manual-processing-and-shutdown) |
 
 - Create a fresh engine for each helper run. The stream context waits for cleanup
   after completion, early exit, or failure. Keep the external client open around
