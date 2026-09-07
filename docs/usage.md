@@ -42,12 +42,21 @@ including custom iterators with `close()` or `aclose()` methods.
 
 Use each context and iterator once, and consume results inside the context.
 Use the engine sequentially. Before reusing it with a helper after partial
-consumption, call `drain_results()` to remove retained results. Helpers reject
-retained results in an automatically created result queue. Drain supplied queues
-too; helpers consume from them. Use a fresh engine when those results must remain
-in their original queue. Helpers require a fresh or stopped engine with no pending
-manual tasks. Conflicting setup raises `AquteError` before consuming input. Use the
-manual API for externally managed producers and consumers.
+consumption, retrieve all retained results. Both helpers raise `AquteError` when
+results remain in the result queue, including a caller-supplied queue. Rejection
+occurs before acquiring the new source or invoking its handler. Retained outcomes
+remain unchanged and available through `get_result()` or `drain_results()`.
+Drain them explicitly before retrying:
+
+```python
+previous_results = engine.drain_results()
+new_results = await engine.process_all(new_items)
+```
+
+The new helper run returns only its own results. Use a fresh engine when old
+results must remain in their original queue. Helpers require a fresh or stopped
+engine with no pending manual tasks. Conflicting setup raises `AquteError` before
+consuming input. Use the manual API for externally managed producers and consumers.
 
 ## Buffering
 
