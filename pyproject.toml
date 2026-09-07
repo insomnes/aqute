@@ -31,7 +31,7 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-root = ""
-source-include = ["tests/**", "examples/**", "docs/**", "mkdocs.yml", "Makefile"]
+source-include = ["tests/**", "examples/**", "docs/**", "scripts/**", "mkdocs.yml", "Makefile"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"

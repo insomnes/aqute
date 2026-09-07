@@ -38,3 +38,7 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - run: make test
+      - name: Test installed wheel outside the checkout
+        env:
+          SMOKE_PYTHON: ${{ matrix.python-version }}
+        run: make wheel-smoke

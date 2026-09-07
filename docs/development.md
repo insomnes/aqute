@@ -8,6 +8,7 @@ make check
 make format
 make build
 make docs
+make wheel-smoke SMOKE_PYTHON=3.11
 uv run --locked python -m examples.quickstart
 uv run --locked python -m examples.streaming
 uv run --locked python -m examples.http_client
@@ -17,6 +18,12 @@ uv run --locked python -m examples.service_shutdown
 `make check` runs Ruff formatting and lint checks, ty, pytest, and a strict documentation build.
 The example tests verify returned values, failures, cleanup, and executable entry points. Commands use `uv.lock`; update dependencies with `uv lock --upgrade`
 and verify them with `make check`. CI tests Python 3.11, 3.12, 3.13, and 3.14.
+
+`make wheel-smoke SMOKE_PYTHON=3.14` builds a wheel, installs it without dependencies
+in a temporary virtual environment, and runs the quickstart outside the checkout.
+The probe checks the import path and expected processing results. Python runs in
+isolated mode to exclude the checkout and user site packages. CI runs this check
+on every supported Python version in addition to the source tests.
 
 Release CI checks the candidate, sets its version from the published GitHub release
 tag (optional `v` prefix), builds with `uv_build`, and publishes through GitHub's

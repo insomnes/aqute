@@ -1,4 +1,6 @@
-.PHONY: install lint ruff-check-format ruff ty format test docs check build
+.PHONY: install lint ruff-check-format ruff ty format test docs check build wheel-smoke
+
+SMOKE_PYTHON ?= 3.11
 
 install:
 	uv sync --locked
@@ -28,3 +30,6 @@ check: lint test docs
 
 build:
 	uv build --no-sources
+
+wheel-smoke:
+	bash scripts/check-wheel.sh "$(SMOKE_PYTHON)"
