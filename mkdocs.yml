@@ -1,6 +1,8 @@
 site_name: Aqute
+site_url: https://insomnes.github.io/aqute/
 site_description: Async coroutine processing with bounded queues, retries, and rate limits.
 repo_url: https://github.com/insomnes/aqute
+edit_uri: edit/main/docs/
 theme: mkdocs
 nav:
   - Quickstart: index.md
