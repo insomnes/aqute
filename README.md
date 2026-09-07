@@ -1,9 +1,18 @@
 # Aqute
 
-**A**sync **QU**eue **T**ask **E**ngine is a performance-oriented asyncio task engine
-with configurable concurrency, queue limits, retries, and rate limiting.
-It requires Python 3.11 or newer and has no runtime dependencies. It runs in one
-process; pending work and results do not survive process termination.
+**A**sync **QU**eue **T**ask **E**ngine is an asyncio worker pool with configurable
+retries, rate limits, and streaming results for independent I/O-bound jobs.
+It requires Python 3.11 or newer and has no runtime dependencies.
+
+Aqute runs in one process; pending work and results do not survive process
+termination. CPU-heavy or blocking handlers block the event loop; Aqute does not
+offload them to threads or processes.
+
+Use it for API ingestion and backfills, infrastructure automation, or independent
+remote inference and evaluation requests. Your application owns retry safety,
+checkpoints, token budgets, and provider policy. See
+[when to choose Aqute](https://github.com/insomnes/aqute/blob/main/docs/index.md#when-to-choose-aqute)
+for a short comparison with plain asyncio and aiometer.
 
 ## Quickstart
 
