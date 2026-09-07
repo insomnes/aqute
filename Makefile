@@ -1,4 +1,4 @@
-.PHONY: install lint ruff-check-format ruff ty format test check build
+.PHONY: install lint ruff-check-format ruff ty format test docs check build
 
 install:
 	uv sync --locked
@@ -21,7 +21,10 @@ format:
 test:
 	uv run --locked pytest
 
-check: lint test
+docs:
+	uv run --locked mkdocs build --strict
+
+check: lint test docs
 
 build:
 	uv build --no-sources

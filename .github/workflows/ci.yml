@@ -20,6 +20,7 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - run: make lint
+      - run: make docs
       - run: make build
 
   tests:
