@@ -1,5 +1,19 @@
 # Usage
 
+## Task results
+
+Call `AquteTask.unwrap()` after receiving a terminal task. It returns `TResult`
+on success, including `None` when that is a valid handler result. On failure, it
+raises the stored exception. A pending task raises `AquteError`.
+
+`unwrap()` does not change the task's outcome fields. Keep inspecting `data`,
+`result`, `error`, and `success` when collecting partial failures.
+
+The [runnable quickstart](index.md#quickstart) collects values with
+`values = [task.unwrap() for task in tasks]` after `process_all()` returns.
+The batch has already finished when `unwrap()` runs, so this does not make
+processing fail fast.
+
 ## Streaming and cleanup
 
 Use an async context to own streaming work:
