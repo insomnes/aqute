@@ -68,6 +68,36 @@ async def test_bursting():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("allow_burst", "acquired_before_idle"),
+    [
+        pytest.param(False, 0, id="delayed-first-use-no-burst"),
+        pytest.param(True, 0, id="delayed-first-use-burst"),
+        pytest.param(True, 1, id="partially-full-before-idle"),
+    ],
+)
+async def test_idle_does_not_increase_capacity(allow_burst, acquired_before_idle):
+    """An idle bucket grants its capacity, then waits for the next token."""
+    max_rate = 4
+    time_period = 0.2
+    capacity = max_rate if allow_burst else 1
+    limiter = TokenBucketRateLimiter(max_rate, time_period, allow_burst)
+
+    for _ in range(acquired_before_idle):
+        await limiter.acquire()
+    await asyncio.sleep(time_period + 0.05)
+
+    granted_at = []
+    start = perf_counter()
+    for _ in range(capacity + 1):
+        await limiter.acquire()
+        granted_at.append(perf_counter())
+
+    assert granted_at[capacity - 1] - start < time_period / max_rate
+    assert granted_at[capacity] - granted_at[0] >= time_period / max_rate - 0.001
+
+
+@pytest.mark.asyncio
 async def test_simultaneous_acquisitions():
     """
     Eleventh request should wait at least 0.4 seconds if we have rate for 5 requests

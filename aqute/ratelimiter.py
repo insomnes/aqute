@@ -29,16 +29,17 @@ class TokenBucketRateLimiter:
 
         This rate limiter employs the token bucket technique where tokens are added
         to the bucket at a certain rate up to the bucket's capacity. An action consumes
-        a token from the bucket.
+        a token from the bucket. The bucket starts full, and idle time cannot increase
+        its capacity.
 
         Args:
-            max_rate: Maximum rate at which tokens are added to the bucket per second.
-            time_period (optional): Period in seconds over which max_rate is measured.
-                Defaults to 1 second.
-            allow_burst (optional): allow to burst requests if bucket capacity is
-                available.
+            max_rate: Number of tokens added per time_period.
+            time_period (optional): Finite positive period in seconds over which
+                max_rate is measured. Defaults to 1 second.
+            allow_burst (optional): If True, capacity is max_rate tokens. Otherwise,
+                capacity is one token, enforcing time_period / max_rate between grants.
         """
-        if max_rate < 1 or time_period <= 0:
+        if max_rate < 1 or not 0 < time_period < math.inf:
             raise ValueError(
                 f"Invalid values for configuration: {max_rate=}, {time_period=}"
             )
@@ -73,11 +74,12 @@ class TokenBucketRateLimiter:
                 Defaults to None for protocol compatibility.
         """
         async with self._lock:
+            self._refill_tokens()
             while self._tokens < 1:
-                self._refill_tokens()
                 sleep_time = (1 - self._tokens) / self._fill_rate
                 logger.debug(f"Got {sleep_time:.5f} <{name}>")
                 await asyncio.sleep(sleep_time)
+                self._refill_tokens()
             self._tokens -= 1
 
 
@@ -91,10 +93,10 @@ class SlidingRateLimiter:
 
         Args:
             max_rate: Maximum allowable actions within the time period.
-            time_period (optional): Period in seconds for rate measurement. Defaults
-                to 1 second.
+            time_period (optional): Finite positive period in seconds for rate
+                measurement. Defaults to 1 second.
         """
-        if max_rate < 1 or time_period <= 0:
+        if max_rate < 1 or not 0 < time_period < math.inf:
             raise ValueError(
                 f"Invalid values for configuration: {max_rate=}, {time_period=}"
             )
@@ -142,10 +144,10 @@ class PerWorkerRateLimiter:
 
         Args:
             max_rate: Maximum allowable actions within the time period.
-            time_period (optional): Period in seconds for rate measurement. Defaults
-                to 1 second.
+            time_period (optional): Finite positive period in seconds for rate
+                measurement. Defaults to 1 second.
         """
-        if max_rate < 1 or time_period <= 0:
+        if max_rate < 1 or not 0 < time_period < math.inf:
             raise ValueError(
                 f"Invalid values for configuration: {max_rate=}, {time_period=}"
             )
@@ -192,8 +194,8 @@ class RandomizedIntervalRateLimiter:
 
         Args:
             max_rate: Maximum allowable actions within the time period.
-            time_period (optional): Period in seconds for rate measurement. Defaults
-                to 1 second.
+            time_period (optional): Finite positive period in seconds for rate
+                measurement. Defaults to 1 second.
             mean_target_multiplier (optional): The mean multiplier influencing
                 the average sleep duration.
             std_dev (optional): The standard deviation for the Gaussian distribution,
@@ -205,7 +207,7 @@ class RandomizedIntervalRateLimiter:
             lower_upper_fluctuation (optional): The fluctuation margin for the
                 multiplier bounds, adding variability when bounds are reached.
         """
-        if max_rate < 1 or time_period <= 0:
+        if max_rate < 1 or not 0 < time_period < math.inf:
             raise ValueError(
                 f"Invalid values for configuration: {max_rate=}, {time_period=}"
             )
