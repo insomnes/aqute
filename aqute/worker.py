@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import math
 from collections.abc import Callable, Coroutine
 from typing import Any, Generic
 
@@ -22,6 +23,7 @@ class Worker(Generic[TData, TResult]):
         task_timeout_seconds: int | float | None = None,
         *,
         retry_filter: Callable[[AquteTask[TData, TResult]], bool] | None = None,
+        retry_delay: Callable[[int, Exception], float] | None = None,
     ):
         self.handle_coro = handle_coro
         self.input_q = input_q
@@ -31,6 +33,7 @@ class Worker(Generic[TData, TResult]):
         self.rate_limiter = rate_limiter
         self.task_timeout_seconds = task_timeout_seconds
         self._retry_filter = retry_filter
+        self._retry_delay = retry_delay
 
     async def run(self) -> None:
         while True:
@@ -44,17 +47,27 @@ class Worker(Generic[TData, TResult]):
                 self.input_q.task_done()
 
     async def handle_task(self, task: AquteTask[TData, TResult]) -> None:
+        failed_attempt = 0
         while True:
             await self._handle_attempt(task)
-            if task.error is None or self._retry_filter is None:
+            error = task.error
+            if error is None or self._retry_filter is None:
                 break
+            failed_attempt += 1
             task._remaining_tries -= 1
             if not self._retry_filter(task):
                 break
+            delay = 0.0
+            if self._retry_delay is not None:
+                delay = self._retry_delay(failed_attempt, error)
+                if not math.isfinite(delay) or delay < 0:
+                    raise ValueError(
+                        "retry_delay must return finite, nonnegative seconds"
+                    )
             task.error = None
             # Retry in this worker: re-enqueuing from the collector can deadlock
             # when both input and output queues are full.
-            await asyncio.sleep(0)
+            await asyncio.sleep(delay)
         await self.output_q.put(task)
 
     async def _handle_attempt(self, task: AquteTask[TData, TResult]) -> None:
@@ -91,6 +104,7 @@ class Foreman(Generic[TData, TResult]):
         *,
         output_task_queue_size: int = 0,
         retry_filter: Callable[[AquteTask[TData, TResult]], bool] | None = None,
+        retry_delay: Callable[[int, Exception], float] | None = None,
     ):
         """
         Initialize a worker pool with a shared input queue.
@@ -111,6 +125,8 @@ class Foreman(Generic[TData, TResult]):
                 Zero means unlimited. Consume results while waiting for finalize.
             retry_filter (optional): Decide whether a failed task gets another
                 attempt after decrementing its remaining tries. Defaults to None.
+            retry_delay (optional): Select a delay before each permitted retry.
+                Receives the 1-based failed-attempt number and its exception.
         """
         if workers_count < 1:
             raise ValueError("workers_count must be at least 1")
@@ -124,6 +140,7 @@ class Foreman(Generic[TData, TResult]):
         self._task_timeout_seconds = task_timeout_seconds
         self._output_task_queue_size = output_task_queue_size
         self._retry_filter = retry_filter
+        self._retry_delay = retry_delay
 
         self.in_queue: AquteTaskQueueType[TData, TResult] = self._create_task_queue(
             input_task_queue_size
@@ -244,6 +261,7 @@ class Foreman(Generic[TData, TResult]):
                 rate_limiter=self._rate_limiter,
                 task_timeout_seconds=self._task_timeout_seconds,
                 retry_filter=self._retry_filter,
+                retry_delay=self._retry_delay,
             )
             for i in range(self._workers_count)
         ]

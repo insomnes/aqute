@@ -33,6 +33,7 @@ class Aqute(Generic[TData, TResult]):
         rate_limiter: RateLimiter | None = None,
         result_queue: AquteTaskQueueType[TData, TResult] | None = None,
         retry_count: int = 0,
+        retry_delay: Callable[[int, Exception], float] | None = None,
         specific_errors_to_retry: tuple[type[Exception], ...]
         | type[Exception]
         | None = None,
@@ -58,6 +59,9 @@ class Aqute(Generic[TData, TResult]):
                 to None.
             retry_count (optional): Number of task retry attempts upon
                 failure. Defaults to 0.
+            retry_delay (optional): Map the 1-based failed-attempt number and
+                exception to finite, nonnegative seconds. Defaults to zero delay.
+                The delay occupies a worker but is outside the handler timeout.
             specific_errors_to_retry (optional): Exceptions triggering
                 task retry. Defaults to None, so every error is retried.
             errors_to_not_retry (optional): Exceptions that should not be
@@ -102,6 +106,7 @@ class Aqute(Generic[TData, TResult]):
             task_timeout_seconds=self._task_timeout_seconds,
             output_task_queue_size=self.result_queue.maxsize,
             retry_filter=self._should_retry_task,
+            retry_delay=retry_delay,
         )
 
         self._added_tasks_count = 0

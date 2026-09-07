@@ -290,6 +290,31 @@ but enforcing `max_rate` over `time_period` limit.
 You can write your own `RateLimiter` implementation with specific algorithm if needed.
 
 ## Manual task adding, context manager and error retry
+Use `retry_delay` to select a delay for each permitted retry. The callback receives
+the 1-based failed-attempt number and that attempt's exception. It runs only when
+the retry count and exception filters allow another attempt. The default delay is
+zero. For example, this application callback implements capped exponential backoff
+with jitter:
+
+```python
+from random import uniform
+
+def retry_delay(failed_attempt: int, error: Exception) -> float:
+    ceiling = min(5.0, 0.1 * 2 ** min(failed_attempt - 1, 10))
+    return uniform(0.0, ceiling)
+
+engine = Aqute(handler, workers_count=4, retry_count=3, retry_delay=retry_delay)
+```
+
+A delayed retry occupies its worker. Other available workers continue processing.
+Every attempt uses the rate limiter; retry delays are outside the per-attempt
+handler timeout. Cancellation interrupts the delay and prevents further attempts.
+The callback must return finite, nonnegative seconds. Invalid delays raise
+`ValueError` inside the worker `ExceptionGroup`; callback exceptions also propagate
+through that group and stop processing. They are configuration failures, not
+handler failures stored in `AquteTask.error`. Applications own retry safety because
+an earlier attempt can have completed a side effect before raising an exception.
+
 This can be most useful if not all of your tasks are available at the start:
 ```python
     # You can add tasks manually and also start/stop aqute with context
