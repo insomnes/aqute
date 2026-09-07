@@ -58,7 +58,7 @@ class Work:
         assert self.active == 0 and self.peak_active <= self.workers
         assert self.peak_ahead <= 4 * self.workers + 3
 
-    async def run(self, mode: str):
+    async def run(self, mode: str, batch_size: int | None):
         engine = Aqute(
             self.handle,
             self.workers,
@@ -66,7 +66,12 @@ class Work:
             result_queue=asyncio.Queue(self.workers),
         )
         if mode == "helper":
-            async with aclosing(engine.iter_results(self.source())) as results:
+            options = (
+                {} if batch_size is None else {"submission_batch_size": batch_size}
+            )
+            async with aclosing(
+                engine.iter_results(self.source(), **options)
+            ) as results:
                 async for task in results:
                     self.consume(task)
         else:
@@ -90,19 +95,20 @@ class Work:
 async def sample(args):
     delay = {"immediate": None, "yield": 0, "sleep1": 0.001, "sleep10": 0.01}[args.case]
     warm = Work(min(args.count, 128), args.workers, delay)
-    await warm.run(args.mode)
+    await warm.run(args.mode, args.batch_size)
     warm.verify()
     del warm
     gc.collect()
     work = Work(args.count, args.workers, delay)
     cpu, wall = time.process_time(), time.perf_counter()
-    await work.run(args.mode)
+    await work.run(args.mode, args.batch_size)
     seconds, cpu_seconds = time.perf_counter() - wall, time.process_time() - cpu
     work.verify()
     return {
         "python": platform.python_version(),
         "source": aqute.__file__,
         "mode": args.mode,
+        "submission_batch_size": args.batch_size,
         "case": args.case,
         "workers": args.workers,
         "items": args.count,
@@ -126,9 +132,19 @@ def main():
     )
     parser.add_argument("--workers", type=int, default=32)
     parser.add_argument("--count", type=int, default=50000)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        help="Helper inputs between yields; omit to use the library default.",
+    )
     args = parser.parse_args()
     if args.count < 1 or args.workers < 1:
         parser.error("--count and --workers must be positive")
+    if args.batch_size is not None:
+        if args.batch_size < 1:
+            parser.error("--batch-size must be positive")
+        if args.mode != "helper":
+            parser.error("--batch-size applies only to --mode helper")
     sys.stdout.write(json.dumps(asyncio.run(sample(args))) + "\n")
 
 

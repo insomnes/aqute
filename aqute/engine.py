@@ -269,7 +269,10 @@ class Aqute(Generic[TData, TResult]):
         self._load_changed.set()
 
     async def iter_results(
-        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+        self,
+        tasks_data: Iterable[TData] | AsyncIterable[TData],
+        *,
+        submission_batch_size: int = 1,
     ) -> AsyncGenerator[AquteTask[TData, TResult]]:
         """
         Asynchronously processes each task from the provided iterable.
@@ -281,14 +284,27 @@ class Aqute(Generic[TData, TResult]):
 
         Args:
             tasks_data: Iterable containing data for each task.
+            submission_batch_size: Positive number of inputs to admit between
+                cooperative yields. Defaults to 1. Larger values can improve
+                throughput at the cost of result latency. Queue backpressure
+                and asynchronous input can yield sooner. Handlers still receive
+                one item each; this does not bound otherwise unlimited queues.
+                Batching can be slower when small input queues fill frequently.
 
         Returns:
             An async iterator yielding results as `AquteTask` objects.
+
+        Raises:
+            ValueError: If submission_batch_size is not a positive integer.
+                Validation occurs when iteration starts, before consuming input.
         """
+        if not isinstance(submission_batch_size, int) or submission_batch_size < 1:
+            raise ValueError("submission_batch_size must be a positive integer")
         async with self:
             load = self.start()
             producer = asyncio.create_task(
-                self._produce_tasks(tasks_data), name="aqute-producer"
+                self._produce_tasks(tasks_data, submission_batch_size),
+                name="aqute-producer",
             )
             changed = self._results_changed
             producer.add_done_callback(lambda _: changed.set())
@@ -319,14 +335,20 @@ class Aqute(Generic[TData, TResult]):
                         raise
 
     async def _produce_tasks(
-        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+        self,
+        tasks_data: Iterable[TData] | AsyncIterable[TData],
+        submission_batch_size: int,
     ) -> None:
+        remaining = submission_batch_size
         if isinstance(tasks_data, AsyncIterable):
             source = aiter(tasks_data)
             try:
                 async for data in source:
                     await self.add_task(data)
-                    await asyncio.sleep(0)
+                    remaining -= 1
+                    if remaining == 0:
+                        remaining = submission_batch_size
+                        await asyncio.sleep(0)
             finally:
                 if isinstance(source, AsyncGenerator):
                     await source.aclose()
@@ -335,14 +357,20 @@ class Aqute(Generic[TData, TResult]):
             try:
                 for data in source:
                     await self.add_task(data)
-                    await asyncio.sleep(0)
+                    remaining -= 1
+                    if remaining == 0:
+                        remaining = submission_batch_size
+                        await asyncio.sleep(0)
             finally:
                 if isinstance(source, Generator):
                     source.close()
         self.finish_submitting()
 
     async def process_all(
-        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+        self,
+        tasks_data: Iterable[TData] | AsyncIterable[TData],
+        *,
+        submission_batch_size: int = 1,
     ) -> list[AquteTask[TData, TResult]]:
         """
         Asynchronously processes all tasks from the provided iterable.
@@ -353,12 +381,19 @@ class Aqute(Generic[TData, TResult]):
 
         Args:
             tasks_data: Iterable containing data items for the tasks.
+            submission_batch_size: Positive number of inputs to admit between
+                cooperative yields; see iter_results(). Defaults to 1.
 
         Returns:
             A list of `AquteTask` objects with results, ordered as in the
             input iterable.
+
+        Raises:
+            ValueError: If submission_batch_size is not a positive integer.
         """
-        async with contextlib.aclosing(self.iter_results(tasks_data)) as results:
+        async with contextlib.aclosing(
+            self.iter_results(tasks_data, submission_batch_size=submission_batch_size)
+        ) as results:
             result = [task async for task in results]
         return sorted(result, key=lambda task: int(task.task_id))
 

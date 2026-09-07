@@ -81,31 +81,45 @@ async def test_too_many_failed_tasks_error(retry_count: int):
 
 
 @pytest.mark.asyncio
-async def test_too_many_failed_tasks_error_with_helper_each():
+@pytest.mark.parametrize("batch_size", [1, 32])
+@pytest.mark.parametrize("input_queue_size", [0, 1])
+async def test_too_many_failed_tasks_error_with_helper_each(
+    batch_size, input_queue_size
+):
     aqute = Aqute(
         workers_count=2,
         handle_coro=failing_handler,
         retry_count=0,
         total_failed_tasks_limit=1,
+        input_task_queue_size=input_queue_size,
     )
 
-    with pytest.raises(AquteTooManyTasksFailedError) as exc:
-        async for _ in aqute.iter_results(range(1, 6)):
-            pass
+    async with asyncio.timeout(1):
+        with pytest.raises(AquteTooManyTasksFailedError) as exc:
+            async for _ in aqute.iter_results(
+                range(1, 6), submission_batch_size=batch_size
+            ):
+                pass
     assert "limit reached: 1" in str(exc.value)
 
 
 @pytest.mark.asyncio
-async def test_too_many_failed_tasks_error_with_helper_all():
+@pytest.mark.parametrize("batch_size", [1, 32])
+@pytest.mark.parametrize("input_queue_size", [0, 1])
+async def test_too_many_failed_tasks_error_with_helper_all(
+    batch_size, input_queue_size
+):
     aqute = Aqute(
         workers_count=2,
         handle_coro=failing_handler,
         retry_count=0,
         total_failed_tasks_limit=1,
+        input_task_queue_size=input_queue_size,
     )
 
-    with pytest.raises(AquteTooManyTasksFailedError) as exc:
-        await aqute.process_all(range(1, 6))
+    async with asyncio.timeout(1):
+        with pytest.raises(AquteTooManyTasksFailedError) as exc:
+            await aqute.process_all(range(1, 6), submission_batch_size=batch_size)
     assert "limit reached: 1" in str(exc.value)
 
 

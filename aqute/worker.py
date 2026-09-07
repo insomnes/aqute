@@ -222,6 +222,11 @@ class Foreman(Generic[TData, TResult]):
                 raise RuntimeError("Workers finished before the task could be queued")
             await admission
         finally:
+            # Some Python 3.14 releases retain this task on a pending supervisor.
+            # https://github.com/python/cpython/issues/152569
+            discard = getattr(asyncio, "future_discard_from_awaited_by", None)
+            if discard is not None:
+                discard(run, asyncio.current_task())
             admission.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await admission
