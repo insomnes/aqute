@@ -42,23 +42,59 @@ including custom iterators with `close()` or `aclose()` methods.
 
 Use each context and iterator once, and consume results inside the context.
 Use the engine sequentially. Before reusing it with a helper after partial
-consumption, call `drain_results()` to remove retained results. Otherwise, a helper
-can consume results from the previous run. Use a fresh engine when those results
-must remain in their original queue. Helpers own the run; use the manual API for
-externally managed producers and consumers.
+consumption, call `drain_results()` to remove retained results. Helpers reject
+retained results in an automatically created result queue. Drain supplied queues
+too; helpers consume from them. Use a fresh engine when those results must remain
+in their original queue. Helpers require no active run or pending manual tasks;
+conflicting setup raises `AquteError` before consuming input. Use the manual API
+for externally managed producers and consumers.
 
 ## Buffering
 
-Set both `input_task_queue_size=I` and `result_queue=asyncio.Queue(R)` to positive
-values to bound buffering. With `W` workers and one producer, Aqute retains at most
-`I + 2*R + W + 3` input/result items, including pending admission and the current
-yielded item. The internal worker-result queue uses capacity `R` too. Slow result
-consumption blocks further processing and admission.
+`process_all()` and `iter_results()` use finite buffering by default. With `W`
+workers, omitted limits give each queue capacity `W`: pending input, terminal
+results, and the internal worker-result queue. Slow result consumption blocks
+further processing and admission.
+
+| Constructor option | Helper runs | Manual runs |
+| --- | --- | --- |
+| Omitted `input_task_queue_size`, or `None` | Capacity `W` | Unlimited |
+| `input_task_queue_size=I`, with `I > 0` | Capacity `I` | Capacity `I` |
+| `input_task_queue_size=0` | Unlimited | Unlimited |
+| Omitted `result_queue`, or `None` | Capacity `W` per result queue | Unlimited |
+| `result_queue=asyncio.Queue(R)` | Supplied queue and relay use `R` | Supplied queue and relay use `R` |
+
+A supplied result queue keeps its identity and capacity, including explicit
+`asyncio.Queue(0)` for unlimited results. Aqute does not resize or replace it.
+After helper cleanup, manual runs keep their original queue limits and already
+published results remain available through `get_result()` or `drain_results()`.
+
+With positive input capacity `I`, result capacity `R`, and one producer, Aqute
+retains at most `I + 2*R + W + 3` input/result items, including pending admission,
+the collector-held result, and the currently yielded item. The default helper
+bound is `4*W + 3` items. The internal worker-result queue uses capacity `R` too.
 
 This is an item-count bound, not a byte limit. It excludes items retained by the
 source or caller and the growing list returned by `process_all()`. A queue size of
 zero is unlimited. Multiple independent producer calls can each hold an item
 while waiting for admission; the formula above assumes one producer.
+
+This pre-1.0 change replaces the constructor default
+`input_task_queue_size: int = 0` with `input_task_queue_size: int | None = None`.
+Existing positive capacities still override the defaults. To preserve the old
+unlimited helper behavior, set both limits explicitly:
+
+```python
+engine = Aqute(
+    handle,
+    workers_count=32,
+    input_task_queue_size=0,
+    result_queue=asyncio.Queue(0),
+)
+```
+
+Manual pre-submit-then-run and run-then-drain flows with omitted limits need no
+migration. Deprecated helper names inherit the new helper defaults.
 
 ## Concurrency, rate, and priority
 

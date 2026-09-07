@@ -282,17 +282,36 @@ class Foreman(Generic[TData, TResult]):
         finally:
             self.reset()
 
-    def reset(self) -> None:
+    def reset(
+        self,
+        *,
+        input_task_queue_size: int | None = None,
+        output_task_queue_size: int | None = None,
+    ) -> None:
         """
         Resets the Foreman state.
 
         Via re-initializing worker input and output queues,
         re-creating the worker instances, and clearing
         the worker supervisor. Call only after workers have stopped.
+        Capacity overrides apply to this reset only; later resets use the
+        constructor capacities.
         """
         logger.debug("Resetting workers")
-        self.in_queue = self._create_task_queue(size=self._input_task_queue_size)
-        self.out_queue = asyncio.Queue(maxsize=self._output_task_queue_size)
+        self.in_queue = self._create_task_queue(
+            size=(
+                self._input_task_queue_size
+                if input_task_queue_size is None
+                else input_task_queue_size
+            )
+        )
+        self.out_queue = asyncio.Queue(
+            maxsize=(
+                self._output_task_queue_size
+                if output_task_queue_size is None
+                else output_task_queue_size
+            )
+        )
         self._results_changed = asyncio.Event()
         self._workers = [
             Worker(
