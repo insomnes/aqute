@@ -296,3 +296,33 @@ explicitly await that generator's `aclose()` when stopping early. Its compatibil
 wrapper shares the same processing and cleanup path; migrate new code to the
 managed `iter_results()` form. `process_all()` keeps its coroutine signature and
 ordered list return type.
+
+## For coding agents
+
+For application code, install with `pip install aqute` and import
+`Aqute` from `aqute`. The [canonical HTTP recipe](http_client.md#runnable-source)
+also requires `httpx`; the checkout's dev group includes it. Adapt that runnable
+source instead of reconstructing the API from older examples.
+
+| Application need | API |
+| --- | --- |
+| A finite batch with an ordered result list | `await engine.process_all(items)` |
+| Results as they complete, with incremental consumption | `async with engine.iter_results(items) as results`, then iterate `results` inside the context |
+| Separate producer and consumer ownership | Follow [manual processing and shutdown](#manual-processing-and-shutdown) |
+
+- Create a fresh engine for each helper run. The stream context waits for cleanup
+  after completion, early exit, or failure. Keep the external client open around
+  that context. Aqute closes started generator sources; callers own other source
+  resources and must close them explicitly.
+- Leave queue limits omitted for finite helper defaults, with each queue sized to
+  `workers_count`. Use positive capacities to override them; zero is unlimited.
+  These are item limits. Payload bytes, caller-retained data, and the complete
+  list returned by `process_all()` are outside the bound. See [buffering](#buffering).
+- Handle each terminal task explicitly. `task.unwrap()` returns the successful
+  value, including a valid `None`, or raises its error. Inspect `task.error` or
+  `task.success` when collecting partial failures. A false or `None` result does
+  not prove failure. See [task results](#task-results).
+- Select safe retry errors and a finite retry count. Every retry acquires the
+  attempt-rate limiter again; worker count controls concurrency separately.
+  Keep inputs replayable. Applications own repeated side effects, client policy,
+  and durable progress. See [retry rules](#errors-retries-and-timeouts).
