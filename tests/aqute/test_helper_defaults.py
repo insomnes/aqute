@@ -225,3 +225,80 @@ async def test_conflicting_helper_setup_does_not_consume_or_discard_work(state):
     finally:
         with contextlib.suppress(asyncio.CancelledError):
             await engine.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result_capacity", [None, 2, 0])
+@pytest.mark.parametrize("collect", [False, True])
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_helpers_reject_retained_results_until_drained(
+    result_capacity, collect, asynchronous
+):
+    """Helpers preserve old outcomes and leave new input untouched until draining."""
+    handled = []
+    acquired = []
+    exhausted = asyncio.Event()
+    old_error = ValueError("old handler failure")
+
+    async def handler(value: int) -> int:
+        handled.append(value)
+        if value == 1:
+            raise old_error
+        return value * 10
+
+    def old_source():
+        yield from range(3)
+        exhausted.set()
+
+    class Source:
+        def __iter__(self):
+            acquired.append(True)
+            return iter([4, 3])
+
+    class AsyncSource:
+        def __aiter__(self):
+            acquired.append(True)
+            return self.items()
+
+        async def items(self):
+            for value in [4, 3]:
+                yield value
+
+    queue = None if result_capacity is None else asyncio.Queue(result_capacity)
+    engine = Aqute(handler, 2, result_queue=queue)
+    source = AsyncSource() if asynchronous else Source()
+
+    async def run_helper():
+        if collect:
+            return await engine.process_all(source)
+        async with engine.iter_results(source) as results:
+            return [task async for task in results]
+
+    async with asyncio.timeout(2):
+        async with engine.iter_results(old_source()) as results:
+            first = await anext(results)
+            assert first.unwrap() == 0
+            await exhausted.wait()
+            await engine.finish()
+
+        with pytest.raises(AquteError, match="Drain retained results"):
+            await run_helper()
+        assert acquired == []
+        assert Counter(handled) == Counter([0, 1, 2])
+
+        failed = await engine.get_result()
+        assert (failed.data, failed.result, failed.success) == (1, None, False)
+        assert failed.error is old_error
+        retained = engine.drain_results()
+        assert [
+            (task.data, task.result, task.error, task.success) for task in retained
+        ] == [(2, 20, None, True)]
+
+        fresh = await run_helper()
+    assert acquired == [True]
+    assert Counter(handled) == Counter([0, 1, 2, 4, 3])
+    values = [task.unwrap() for task in fresh]
+    actual = values if collect else sorted(values)
+    expected = [40, 30] if collect else [30, 40]
+    assert actual == expected
+    assert engine.drain_results() == []

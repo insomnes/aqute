@@ -319,8 +319,8 @@ class Aqute(Generic[TData, TResult]):
             ValueError: If submission_batch_size is not a positive integer.
                 Validation occurs when iteration starts, before consuming input.
             AquteError: If a run is already started, manual tasks are pending,
-                or an automatically owned result queue has retained results.
-                Drain retained results before starting another helper run.
+                or the result queue has retained results. Drain retained results
+                or use a fresh engine before starting another helper run.
         """
         return contextlib.aclosing(
             self._iter_results(tasks_data, submission_batch_size=submission_batch_size)
@@ -377,9 +377,12 @@ class Aqute(Generic[TData, TResult]):
                 "before starting a helper"
             )
         original_result_queue = self.result_queue
+        if not original_result_queue.empty():
+            raise AquteError(
+                "Drain retained results or use a fresh engine "
+                "before starting a helper run"
+            )
         if self._owns_result_queue:
-            if not original_result_queue.empty():
-                raise AquteError("Drain retained results before starting a helper run")
             self.result_queue = asyncio.Queue(self._workers_count)
         self._foreman.reset(
             input_task_queue_size=(
@@ -455,6 +458,9 @@ class Aqute(Generic[TData, TResult]):
 
         Raises:
             ValueError: If submission_batch_size is not a positive integer.
+            AquteError: If a run is already started, manual tasks are pending,
+                or the result queue has retained results. Drain retained results
+                or use a fresh engine before starting another helper run.
         """
         async with self.iter_results(
             tasks_data, submission_batch_size=submission_batch_size
