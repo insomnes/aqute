@@ -76,6 +76,61 @@ While a deep dive is available through Aqute's method docstrings, it's not neces
 
 Aqute is easy to use for both simple and advanced workflows.
 
+## Incremental input and bounded buffering
+
+Both helpers accept synchronous `Iterable` and asynchronous `AsyncIterable` inputs.
+They start processing while reading input. `apply_to_all()` collects a list in input
+order; `apply_to_each()` yields terminal results in completion order.
+
+Set both `input_task_queue_size=I` and `result_queue=asyncio.Queue(R)` to positive
+values to bound buffering. With `W` workers and one producer, Aqute retains at most
+`I + 2*R + W + 3` input/result items, including pending admission and the current
+yielded item. The internal worker-result queue uses the same capacity `R`. Slow
+result consumption therefore blocks further processing and input admission.
+This is an item-count bound, not a byte limit. It excludes items retained by the
+source or caller and the growing list returned by `apply_to_all()`. A queue size
+of zero is unlimited.
+
+```python
+import asyncio
+from contextlib import aclosing
+from aqute import Aqute
+
+async def main():
+    async def source():
+        for value in range(100):
+            yield value
+
+    async def handle(value):
+        return value * 2
+
+    engine = Aqute(handle, 4, input_task_queue_size=8,
+                   result_queue=asyncio.Queue(8))
+    async with aclosing(engine.apply_to_each(source())) as results:
+        async for task in results:
+            if task.error is not None:
+                raise task.error
+            print(task.result)
+
+asyncio.run(main())
+```
+
+Always close a partially consumed iterator with `contextlib.aclosing`; `break`
+alone does not close an async generator. Closing or cancelling the iterator waits
+for its producer and workers to stop. Aqute closes synchronous and asynchronous
+generator sources; callers own other source resources. Source exceptions propagate
+to the caller after cleanup. Handler failures remain values in `AquteTask.error`.
+Before reusing an engine with a batch helper, drain retained results with
+`extract_all_results()`. Otherwise, a helper can consume results from the previous
+run. Use a fresh engine when those results need to stay in their original queue.
+For asynchronous input, `start_timeout_seconds` includes the wait for the first
+item from the source.
+
+A worker retains its task through retries. Every attempt still uses the rate
+limiter and handler timeout. Priority orders admitted pending tasks; it does not
+preempt an occupied worker. When manually submitting with finite queues, consume
+results concurrently with submission and completion waits.
+
 ## Simple batch processing
 The easiest way to use Aqute is `apply_to_all()` method:
 

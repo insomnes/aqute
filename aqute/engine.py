@@ -1,7 +1,14 @@
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Callable, Coroutine, Iterable
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterable,
+    Callable,
+    Coroutine,
+    Generator,
+    Iterable,
+)
 from types import TracebackType
 from typing import (
     Any,
@@ -93,6 +100,8 @@ class Aqute(Generic[TData, TResult]):
             input_task_queue_size=self._input_task_queue_size,
             use_priority_queue=self._use_priority_queue,
             task_timeout_seconds=self._task_timeout_seconds,
+            output_task_queue_size=self.result_queue.maxsize,
+            retry_filter=self._should_retry_task,
         )
 
         self._added_tasks_count = 0
@@ -230,14 +239,15 @@ class Aqute(Generic[TData, TResult]):
         self._load_changed.set()
 
     async def apply_to_each(
-        self, tasks_data: Iterable[TData]
-    ) -> AsyncIterator[AquteTask[TData, TResult]]:
+        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+    ) -> AsyncGenerator[AquteTask[TData, TResult]]:
         """
         Asynchronously processes each task from the provided iterable.
 
-        Each piece of data in `tasks_data` is converted into a task and added
-        for processing. Once all tasks are added, results are yielded as they
-        complete.
+        Produce input concurrently with processing and yield terminal results
+        in completion order. Finite input and result queues bound buffering.
+        Close a partially consumed iterator with contextlib.aclosing.
+        Source exceptions propagate after cancelling owned processing.
 
         Args:
             tasks_data: Iterable containing data for each task.
@@ -245,17 +255,69 @@ class Aqute(Generic[TData, TResult]):
         Returns:
             An async iterator yielding results as `AquteTask` objects.
         """
-        for data in tasks_data:
-            await self.add_task(data)
-        self.set_all_tasks_added()
-        exposed = 0
         async with self:
-            while exposed != self._added_tasks_count:
-                yield await self.get_task_result()
-                exposed += 1
+            load = self.start()
+            producer = asyncio.create_task(
+                self._produce_tasks(tasks_data), name="aqute-producer"
+            )
+            exposed = 0
+            try:
+                while not producer.done() or exposed < self._added_tasks_count:
+                    if producer.done():
+                        await producer
+                    if not self.result_queue.empty():
+                        exposed += 1
+                        yield self.result_queue.get_nowait()
+                        continue
+                    result = asyncio.create_task(self.result_queue.get())
+                    try:
+                        waiting = (result, load)
+                        if not producer.done():
+                            waiting = (*waiting, producer)
+                        await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
+                        if producer.done():
+                            await producer
+                        if result.done():
+                            exposed += 1
+                            yield result.result()
+                        elif load.done():
+                            await load
+                    finally:
+                        result.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await result
+                await producer
+                await load
+            finally:
+                producer.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await producer
+
+    async def _produce_tasks(
+        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+    ) -> None:
+        if isinstance(tasks_data, AsyncIterable):
+            source = aiter(tasks_data)
+            try:
+                async for data in source:
+                    await self.add_task(data)
+                    await asyncio.sleep(0)
+            finally:
+                if isinstance(source, AsyncGenerator):
+                    await source.aclose()
+        else:
+            source = iter(tasks_data)
+            try:
+                for data in source:
+                    await self.add_task(data)
+                    await asyncio.sleep(0)
+            finally:
+                if isinstance(source, Generator):
+                    source.close()
+        self.set_all_tasks_added()
 
     async def apply_to_all(
-        self, tasks_data: Iterable[TData]
+        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
     ) -> list[AquteTask[TData, TResult]]:
         """
         Asynchronously processes all tasks from the provided iterable.
@@ -271,21 +333,8 @@ class Aqute(Generic[TData, TResult]):
             A list of `AquteTask` objects with results, ordered as in the
             input iterable.
         """
-        for data in tasks_data:
-            await self.add_task(data)
-
-        self.set_all_tasks_added()
-
-        result: list[AquteTask[TData, TResult]] = []
-
-        exposed = 0
-
-        async with self:
-            while exposed != self._added_tasks_count:
-                task_result = await self.get_task_result()
-                result.append(task_result)
-                exposed += 1
-
+        async with contextlib.aclosing(self.apply_to_each(tasks_data)) as results:
+            result = [task async for task in results]
         return sorted(result, key=lambda task: int(task.task_id))
 
     async def get_task_result(self) -> AquteTask[TData, TResult]:
@@ -386,7 +435,10 @@ class Aqute(Generic[TData, TResult]):
             if self._start_timeout_seconds <= 0:
                 raise TimeoutError
             async with asyncio.timeout(self._start_timeout_seconds):
-                while self._added_tasks_count == self._finished_tasks_count:
+                while (
+                    self._added_tasks_count == self._finished_tasks_count
+                    and not self._all_tasks_added
+                ):
                     self._load_changed.clear()
                     await self._load_changed.wait()
         except TimeoutError as exc:
@@ -400,7 +452,8 @@ class Aqute(Generic[TData, TResult]):
         task_id = handled_task.task_id
 
         if handled_task.error:
-            await self._process_error_task(handled_task)
+            await self._put_task_to_result(handled_task)
+            self._check_failed_tasks_limit()
             return
 
         handled_task.success = True
@@ -410,25 +463,6 @@ class Aqute(Generic[TData, TResult]):
             f"Finished task {task_id} "
             f"{self._added_tasks_count, self._finished_tasks_count}"
         )
-
-    async def _process_error_task(self, task: AquteTask[TData, TResult]) -> None:
-        task._remaining_tries -= 1
-        task_id = task.task_id
-
-        if not self._should_retry_task(task):
-            await self._put_task_to_result(task)
-            logger.debug(
-                f"Task {task_id} is not retriable, finishing task "
-                f"{self._added_tasks_count, self._finished_tasks_count}"
-            )
-            self._check_failed_tasks_limit()
-            return
-
-        task.error = None
-        logger.debug(
-            f"Retrying task {task_id} with remaining tries {task._remaining_tries}"
-        )
-        await self._foreman.add_task(task)
 
     def _check_failed_tasks_limit(self) -> None:
         if self._total_failed_limit is None:

@@ -20,6 +20,8 @@ class Worker(Generic[TData, TResult]):
         output_q: AquteTaskQueueType[TData, TResult],
         rate_limiter: RateLimiter | None = None,
         task_timeout_seconds: int | float | None = None,
+        *,
+        retry_filter: Callable[[AquteTask[TData, TResult]], bool] | None = None,
     ):
         self.handle_coro = handle_coro
         self.input_q = input_q
@@ -28,6 +30,7 @@ class Worker(Generic[TData, TResult]):
 
         self.rate_limiter = rate_limiter
         self.task_timeout_seconds = task_timeout_seconds
+        self._retry_filter = retry_filter
 
     async def run(self) -> None:
         while True:
@@ -41,6 +44,20 @@ class Worker(Generic[TData, TResult]):
                 self.input_q.task_done()
 
     async def handle_task(self, task: AquteTask[TData, TResult]) -> None:
+        while True:
+            await self._handle_attempt(task)
+            if task.error is None or self._retry_filter is None:
+                break
+            task._remaining_tries -= 1
+            if not self._retry_filter(task):
+                break
+            task.error = None
+            # Retry in this worker: re-enqueuing from the collector can deadlock
+            # when both input and output queues are full.
+            await asyncio.sleep(0)
+        await self.output_q.put(task)
+
+    async def _handle_attempt(self, task: AquteTask[TData, TResult]) -> None:
         if self.rate_limiter:
             await self.rate_limiter.acquire(name=self.name, task=task)
         try:
@@ -60,7 +77,6 @@ class Worker(Generic[TData, TResult]):
                 f"{exc.__class__}: {exc}"
             )
             task.error = exc
-        await self.output_q.put(task)
 
 
 class Foreman(Generic[TData, TResult]):
@@ -72,6 +88,9 @@ class Foreman(Generic[TData, TResult]):
         input_task_queue_size: int = 0,
         use_priority_queue: bool = False,
         task_timeout_seconds: int | float | None = None,
+        *,
+        output_task_queue_size: int = 0,
+        retry_filter: Callable[[AquteTask[TData, TResult]], bool] | None = None,
     ):
         """
         Initialize a worker pool with a shared input queue.
@@ -88,6 +107,10 @@ class Foreman(Generic[TData, TResult]):
             task_timeout_seconds (optional): Timeout for task handler coroutine wait.
                 Defaults to None. AquteTaskTimeoutError will be raised
                 if task processing takes longer than this value.
+            output_task_queue_size (optional): Maximum buffered worker results.
+                Zero means unlimited. Consume results while waiting for finalize.
+            retry_filter (optional): Decide whether a failed task gets another
+                attempt after decrementing its remaining tries. Defaults to None.
         """
         if workers_count < 1:
             raise ValueError("workers_count must be at least 1")
@@ -99,6 +122,8 @@ class Foreman(Generic[TData, TResult]):
         self._use_priority_queue = use_priority_queue
 
         self._task_timeout_seconds = task_timeout_seconds
+        self._output_task_queue_size = output_task_queue_size
+        self._retry_filter = retry_filter
 
         self.in_queue: AquteTaskQueueType[TData, TResult] = self._create_task_queue(
             input_task_queue_size
@@ -209,7 +234,7 @@ class Foreman(Generic[TData, TResult]):
         """
         logger.debug("Resetting workers")
         self.in_queue = self._create_task_queue(size=self._input_task_queue_size)
-        self.out_queue = asyncio.Queue()
+        self.out_queue = asyncio.Queue(maxsize=self._output_task_queue_size)
         self._workers = [
             Worker(
                 name=f"worker_{i}",
@@ -218,6 +243,7 @@ class Foreman(Generic[TData, TResult]):
                 output_q=self.out_queue,
                 rate_limiter=self._rate_limiter,
                 task_timeout_seconds=self._task_timeout_seconds,
+                retry_filter=self._retry_filter,
             )
             for i in range(self._workers_count)
         ]
