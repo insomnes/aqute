@@ -18,7 +18,7 @@ from typing import (
 
 from aqute.errors import AquteError, AquteTooManyTasksFailedError
 from aqute.ratelimiter import RateLimiter
-from aqute.task import AquteTask, AquteTaskQueueType, TData, TResult
+from aqute.task import AquteCounters, AquteTask, AquteTaskQueueType, TData, TResult
 from aqute.worker import Foreman
 
 logger = logging.getLogger("aqute")
@@ -121,6 +121,26 @@ class Aqute(Generic[TData, TResult]):
         self._start_timeout_seconds = start_timeout_seconds
 
         self.aiotask_of_run_load: asyncio.Task[None] | None = None
+
+    @property
+    def counters(self) -> AquteCounters:
+        """Return an immutable snapshot for this run, reset after stop().
+
+        pending counts admitted tasks awaiting assignment, excluding blocked
+        submissions. running counts occupied workers, including rate-limit,
+        retry-delay, and result-publication waits. succeeded/failed count terminal
+        handler outcomes before publication. retries counts additional handler
+        invocations, excluding retries still waiting to start. Reading results
+        does not change counts; retained results are excluded from later runs.
+        """
+        counts = self._foreman._counters
+        return AquteCounters(
+            pending=self._foreman.in_queue.qsize(),
+            running=counts.running,
+            succeeded=counts.succeeded,
+            failed=counts.failed,
+            retries=counts.retries,
+        )
 
     def start(self) -> asyncio.Task[None]:
         """
@@ -410,6 +430,7 @@ class Aqute(Generic[TData, TResult]):
                 self._failed_tasks = 0
                 self._all_tasks_added = False
                 self._load_changed.clear()
+                self._foreman._counters.reset()
 
     async def _run_load(self) -> None:
         self._foreman.start()

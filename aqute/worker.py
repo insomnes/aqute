@@ -3,6 +3,7 @@ import contextlib
 import logging
 import math
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from typing import Any, Generic
 
 from aqute.errors import AquteTaskTimeoutError
@@ -10,6 +11,17 @@ from aqute.ratelimiter import RateLimiter
 from aqute.task import END_MARKER, AquteTask, AquteTaskQueueType, TData, TResult
 
 logger = logging.getLogger("aqute.worker")
+
+
+@dataclass
+class _WorkerCounters:
+    running: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    retries: int = 0
+
+    def reset(self) -> None:
+        self.running = self.succeeded = self.failed = self.retries = 0
 
 
 class Worker(Generic[TData, TResult]):
@@ -24,6 +36,7 @@ class Worker(Generic[TData, TResult]):
         *,
         retry_filter: Callable[[AquteTask[TData, TResult]], bool] | None = None,
         retry_delay: Callable[[int, Exception], float] | None = None,
+        _counters: _WorkerCounters | None = None,
     ):
         self.handle_coro = handle_coro
         self.input_q = input_q
@@ -34,22 +47,25 @@ class Worker(Generic[TData, TResult]):
         self.task_timeout_seconds = task_timeout_seconds
         self._retry_filter = retry_filter
         self._retry_delay = retry_delay
+        self._counters = _counters if _counters is not None else _WorkerCounters()
 
     async def run(self) -> None:
         while True:
             task = await self.input_q.get()
+            self._counters.running += 1
             try:
                 logger.debug(f"Worker {self.name} got task {task.task_id}")
                 if task.data is END_MARKER:
                     return
                 await self.handle_task(task)
             finally:
+                self._counters.running -= 1
                 self.input_q.task_done()
 
     async def handle_task(self, task: AquteTask[TData, TResult]) -> None:
         failed_attempt = 0
         while True:
-            await self._handle_attempt(task)
+            await self._handle_attempt(task, is_retry=failed_attempt > 0)
             error = task.error
             if error is None or self._retry_filter is None:
                 break
@@ -68,15 +84,23 @@ class Worker(Generic[TData, TResult]):
             # Retry in this worker: re-enqueuing from the collector can deadlock
             # when both input and output queues are full.
             await asyncio.sleep(delay)
+        if task.error is None:
+            self._counters.succeeded += 1
+        else:
+            self._counters.failed += 1
         await self.output_q.put(task)
 
-    async def _handle_attempt(self, task: AquteTask[TData, TResult]) -> None:
+    async def _handle_attempt(
+        self, task: AquteTask[TData, TResult], *, is_retry: bool
+    ) -> None:
         if self.rate_limiter:
             await self.rate_limiter.acquire(name=self.name, task=task)
         try:
             if self.task_timeout_seconds is not None and self.task_timeout_seconds <= 0:
                 raise TimeoutError
             async with asyncio.timeout(self.task_timeout_seconds):
+                if is_retry:
+                    self._counters.retries += 1
                 task.result = await self.handle_coro(task.data)
         except TimeoutError:
             logger.warning(
@@ -141,6 +165,7 @@ class Foreman(Generic[TData, TResult]):
         self._output_task_queue_size = output_task_queue_size
         self._retry_filter = retry_filter
         self._retry_delay = retry_delay
+        self._counters = _WorkerCounters()
 
         self.in_queue: AquteTaskQueueType[TData, TResult] = self._create_task_queue(
             input_task_queue_size
@@ -262,6 +287,7 @@ class Foreman(Generic[TData, TResult]):
                 task_timeout_seconds=self._task_timeout_seconds,
                 retry_filter=self._retry_filter,
                 retry_delay=self._retry_delay,
+                _counters=self._counters,
             )
             for i in range(self._workers_count)
         ]

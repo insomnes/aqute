@@ -250,6 +250,9 @@ async def main():
         while len(result) < TASK_LIMIT:
             task = await aqute.get_task_result()
             result.append(task)
+            counts = aqute.counters
+            logger.info("Pending: %s; running: %s; succeeded: %s; failed: %s",
+                        counts.pending, counts.running, counts.succeeded, counts.failed)
 
     async with aqute:
         async with asyncio.TaskGroup() as group:
@@ -566,6 +569,25 @@ tag (with an optional `v` prefix), and builds with `uv_build`. PyPI publishing u
 GitHub's trusted publishing identity.
 
 # Misc
+## Runtime counters
+
+`engine.counters` returns an immutable `AquteCounters` snapshot for the current run.
+
+| Counter | Meaning |
+| --- | --- |
+| `pending` | Admitted tasks awaiting a worker; excludes blocked submissions. |
+| `running` | Occupied workers, including rate-limit, retry-delay, and result-publication waits. |
+| `succeeded` | Terminal successful handler outcomes, before result consumption. |
+| `failed` | Terminal failed handler outcomes after retry rules; excludes cancelled work. |
+| `retries` | Additional handler invocations that started; excludes delays and rate-limit waits before a retry. |
+
+Reading or draining results does not change terminal counts. A worker can have a
+terminal outcome while still waiting to publish it, so `running` is not disjoint
+from `succeeded` and `failed`. `stop()` resets all counts after cleanup. Completed
+results retained across runs do not become counts in the next run. The helpers
+call `stop()` on exit; inspect their counters during iteration, or use the manual
+flow to inspect them after `wait_till_end()` and before `stop()`.
+
 ## Instance reuse after `stop()`
 
 `stop()` cancels processing and waits for worker cleanup. It resets task and failure

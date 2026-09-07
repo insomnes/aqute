@@ -1,12 +1,22 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, NamedTuple, TypeVar
 
 END_MARKER = object()
 
 
 TData = TypeVar("TData")
 TResult = TypeVar("TResult")
+
+
+class AquteCounters(NamedTuple):
+    """Immutable current-run counts; see Aqute.counters for their meanings."""
+
+    pending: int
+    running: int
+    succeeded: int
+    failed: int
+    retries: int
 
 
 @dataclass(eq=False, order=False)
