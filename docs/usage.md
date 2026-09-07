@@ -2,9 +2,10 @@
 
 ## Task results
 
-Call `AquteTask.unwrap()` after receiving a terminal task. It returns `TResult`
-on success, including `None` when that is a valid handler result. On failure, it
-raises the stored exception. A pending task raises `AquteError`.
+Call `AquteTask.unwrap()` on terminal results obtained from `Aqute` through
+`process_all()`, `iter_results()`, `get_result()`, or `drain_results()`. It returns
+`TResult` on success, including `None` when that is a valid handler result.
+On failure, it raises the stored exception. A pending task raises `AquteError`.
 
 `unwrap()` does not change the task's outcome fields. Keep inspecting `data`,
 `result`, `error`, and `success` when collecting partial failures.
@@ -162,6 +163,10 @@ retained results before using a helper again. For lower-level worker queues,
 `aqute.worker.Foreman` exposes `start()`, `add_task(AquteTask(...))`,
 `get_handled_task()`, `finalize()`, and `stop()`. Consume finite result queues while
 waiting for `finalize()`.
+
+Inspect `error` and `result` on tasks returned directly by `Foreman`. It does not
+set `success`; `unwrap()` requires the engine's terminal success flag to return
+a value.
 
 ## Progress counters
 
