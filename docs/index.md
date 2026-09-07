@@ -46,8 +46,12 @@ For infrastructure changes, retries can repeat side effects; the application mus
 decide which operations are safe to repeat. For remote inference, Aqute schedules
 handler attempts; model execution and provider-specific policy remain outside it.
 
-Configure both input and result queue limits to bound buffering; their defaults
-are unlimited. `process_all()` retains the complete result list. The
-`iter_results()` context awaits producer and worker cleanup, including after early
-exit. See [streaming and cleanup](usage.md#streaming-and-cleanup) for the lifecycle
-contract.
+`process_all()` and `iter_results()` use finite input and result buffering by
+default, with each queue sized to `workers_count`. Manual processing keeps
+unlimited defaults. Queue limits bound items, not bytes; `process_all()` retains
+the complete result list. See [buffering](usage.md#buffering) for overrides, the
+item bound, and migration.
+
+The `iter_results()` context awaits producer and worker cleanup, including after
+early exit. See [streaming and cleanup](usage.md#streaming-and-cleanup) for the
+lifecycle contract.

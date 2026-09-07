@@ -45,9 +45,9 @@ Use the engine sequentially. Before reusing it with a helper after partial
 consumption, call `drain_results()` to remove retained results. Helpers reject
 retained results in an automatically created result queue. Drain supplied queues
 too; helpers consume from them. Use a fresh engine when those results must remain
-in their original queue. Helpers require no active run or pending manual tasks;
-conflicting setup raises `AquteError` before consuming input. Use the manual API
-for externally managed producers and consumers.
+in their original queue. Helpers require a fresh or stopped engine with no pending
+manual tasks. Conflicting setup raises `AquteError` before consuming input. Use the
+manual API for externally managed producers and consumers.
 
 ## Buffering
 
@@ -181,6 +181,7 @@ generated. `drain_results()` removes currently available results without waiting
 also sends that signal and waits for processing. Stop producers before either
 call. These methods do not reject later submissions while the run still has work.
 `await run()` starts processing and finishes work submitted before start.
+After `run()` or `finish()` completes, await `stop()` before starting a helper.
 
 The executable [service shutdown example](service_shutdown.md) shows:
 
