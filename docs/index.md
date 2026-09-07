@@ -31,8 +31,27 @@ and iterate `results` inside the context. Both helpers accept `Iterable` and
 result.
 
 See [usage](usage.md) for buffering, cleanup, retry, timeout, and compatibility
-contracts. The executable examples cover [streaming](streaming.md), a shared
-[HTTP client](http_client.md), and [service shutdown](service_shutdown.md).
+contracts. The executable examples cover [streaming](streaming.md),
+[bounded HTTP processing](http_client.md), and [service shutdown](service_shutdown.md).
+
+## Bounded HTTP processing
+
+Start with the [HTTP example](http_client.md) to combine four workers, a shared
+HTTPX client, attempt-rate limits, selected retries, and incremental results.
+The page includes the runnable source and explains its fail-fast error policy.
+
+```bash
+uv run --locked python -m examples.http_client
+```
+
+This checkout command runs offline. It completes a transport retry, logs two
+pages, and handles a terminal HTTP error in a separate run. Each run uses a fresh
+engine and a managed stream with finite queue defaults. It returns a count instead
+of retaining every body. Queues bound items, not payload bytes or application data.
+The same source provides an explicit callable path for real requests.
+
+See [For coding agents](usage.md#for-coding-agents) for helper selection and
+application ownership rules.
 
 ## When to choose Aqute
 

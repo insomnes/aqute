@@ -39,12 +39,31 @@ improve throughput for small tasks at the cost of result latency. The default
 preserves per-item cooperative yielding. Handlers still receive one item per call;
 configure worker concurrency and queue limits separately.
 
+## Bounded HTTP processing
+
+The [runnable HTTP example](https://insomnes.github.io/aqute/http_client/) combines
+a shared HTTPX client, four workers, an attempt-rate limiter, selected retries,
+and incremental result consumption. Its managed stream uses finite queue defaults
+and closes processing before the client. It logs each page and returns a count;
+queue limits bound items, not response bytes or data retained by your application.
+
+From a development checkout, run it without network access:
+
+```bash
+uv run --locked python -m examples.http_client
+```
+
+The example completes a transport retry, then handles a terminal HTTP error in a
+separate run. Its [source](https://github.com/insomnes/aqute/blob/main/examples/http_client.py)
+also provides an explicit path for real requests. The HTTP page includes the
+source and explains buffering overrides, retry safety, and its fail-fast policy.
+
 ## Documentation and examples
 
 The [documentation](https://insomnes.github.io/aqute/) includes the complete quickstart.
 [Usage](https://insomnes.github.io/aqute/usage/) covers bounded buffering, streaming cleanup, rate limits,
 retries, shutdown, counters, and deprecated method names. Full examples cover
-[streaming](https://insomnes.github.io/aqute/streaming/), a shared [HTTP client](https://insomnes.github.io/aqute/http_client/),
+[streaming](https://insomnes.github.io/aqute/streaming/), [bounded HTTP processing](https://insomnes.github.io/aqute/http_client/),
 and [service shutdown](https://insomnes.github.io/aqute/service_shutdown/).
 
 The [documentation source](https://github.com/insomnes/aqute/blob/main/docs/index.md) includes code directly from these

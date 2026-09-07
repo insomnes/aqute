@@ -7,14 +7,18 @@ from collections.abc import AsyncIterable, Iterable
 import httpx
 
 from aqute import Aqute
+from aqute.ratelimiter import TokenBucketRateLimiter
 from examples.streaming import retry_delay
+
+logger = logging.getLogger(__name__)
 
 
 async def fetch_pages(
     urls: Iterable[str] | AsyncIterable[str],
     *,
     transport: httpx.AsyncBaseTransport | None = None,
-) -> list[str]:
+) -> int:
+    """Log pages as they complete; raise the first observed terminal error."""
     async with httpx.AsyncClient(timeout=5.0, transport=transport) as client:
 
         async def fetch(url: str) -> str:
@@ -24,35 +28,51 @@ async def fetch_pages(
 
         engine = Aqute(
             fetch,
-            4,
-            input_task_queue_size=8,
-            result_queue=asyncio.Queue(8),
+            workers_count=4,
+            rate_limiter=TokenBucketRateLimiter(max_rate=10),
             retry_count=2,
             retry_delay=retry_delay,
             specific_errors_to_retry=httpx.TransportError,
         )
-        pages = []
+        completed = 0
         async with engine.iter_results(urls) as results:
             async for task in results:
-                if task.error is not None:
-                    raise task.error
-                assert task.result is not None
-                pages.append(task.result)
-        return pages
+                # Replace this log with application-owned parsing or persistence.
+                logger.info("Fetched %s: %s", task.data, task.unwrap())
+                completed += 1
+        return completed
 
 
-async def main() -> list[str]:
+async def main() -> int:
+    failed_once = False
+
     def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal failed_once
+        if request.url.path == "/jobs/1" and not failed_once:
+            failed_once = True
+            raise httpx.ConnectError("temporary connection failure", request=request)
+        if request.url.path == "/unavailable":
+            return httpx.Response(503)
         return httpx.Response(200, text=request.url.path)
 
-    pages = await fetch_pages(
-        ["https://example.test/jobs/1", "https://example.test/jobs/2"],
+    completed = await fetch_pages(
+        ("https://example.test/jobs/1", "https://example.test/jobs/2"),
         transport=httpx.MockTransport(respond),
     )
-    assert sorted(pages) == ["/jobs/1", "/jobs/2"]
-    return pages
+    try:
+        await fetch_pages(
+            ("https://example.test/unavailable",),
+            transport=httpx.MockTransport(respond),
+        )
+    except httpx.HTTPStatusError as error:
+        logger.error(
+            "Terminal HTTP %s for %s; run stopped",
+            error.response.status_code,
+            error.request.url,
+        )
+    return completed
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    logging.info("Results: %s", sorted(asyncio.run(main())))
+    logging.info("Results: %s pages", asyncio.run(main()))
