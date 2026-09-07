@@ -55,8 +55,8 @@ async def test_stop_preserves_the_callers_deadline(kind):
 
 
 @pytest.mark.asyncio
-async def test_iterator_close_preserves_the_callers_deadline():
-    """A deadline during source cleanup must propagate from the public iterator."""
+async def test_stream_context_exit_preserves_the_callers_deadline():
+    """A deadline during source cleanup must propagate from context exit."""
     release = asyncio.Event()
     cleaning = asyncio.Event()
     closed = asyncio.Event()
@@ -76,12 +76,12 @@ async def test_iterator_close_preserves_the_callers_deadline():
         return value
 
     engine = Aqute(handle, 1)
-    stream = engine.iter_results(source())
-    assert (await anext(stream)).result == 1
 
     async def close_with_deadline():
-        async with asyncio.timeout(0.02):
-            await stream.aclose()
+        deadline = asyncio.timeout(None)
+        async with deadline, engine.iter_results(source()) as stream:
+            assert (await anext(stream)).result == 1
+            deadline.reschedule(asyncio.get_running_loop().time() + 0.02)
 
     closing = asyncio.create_task(close_with_deadline())
     try:
@@ -98,5 +98,4 @@ async def test_iterator_close_preserves_the_callers_deadline():
         closing.cancel()
         with contextlib.suppress(asyncio.CancelledError, TimeoutError):
             await closing
-        await stream.aclose()
         await engine.stop()

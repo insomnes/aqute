@@ -28,9 +28,11 @@ results = await Aqute(handle, workers_count=4).process_all(range(10))
 
 See the complete runnable [quickstart](https://github.com/insomnes/aqute/blob/main/examples/quickstart.py) for imports, a
 handler, error handling, and `asyncio.run()`. `process_all()` returns an awaited
-list in input order. `iter_results()` yields terminal results in completion order.
-Both accept synchronous and asynchronous input. Inspect each task's `error` or
-`success`; `None` can be a valid result.
+list in input order. For completion-order streaming, use
+`async with engine.iter_results(items) as results` and iterate `results` inside the
+context. Context exit awaits producer and worker cleanup, including after early
+exit. Both helpers accept synchronous and asynchronous input. Inspect each task's
+`error` or `success`; `None` can be a valid result.
 
 Both helpers accept `submission_batch_size` (default `1`). Larger batches can
 improve throughput for small tasks at the cost of result latency. The default
@@ -40,7 +42,7 @@ configure worker concurrency and queue limits separately.
 ## Documentation and examples
 
 The [documentation](https://insomnes.github.io/aqute/) includes the complete quickstart.
-[Usage](https://insomnes.github.io/aqute/usage/) covers bounded buffering, iterator cleanup, rate limits,
+[Usage](https://insomnes.github.io/aqute/usage/) covers bounded buffering, streaming cleanup, rate limits,
 retries, shutdown, counters, and deprecated method names. Full examples cover
 [streaming](https://insomnes.github.io/aqute/streaming/), a shared [HTTP client](https://insomnes.github.io/aqute/http_client/),
 and [service shutdown](https://insomnes.github.io/aqute/service_shutdown/).

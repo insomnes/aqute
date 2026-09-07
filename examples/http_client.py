@@ -3,7 +3,6 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterable, Iterable
-from contextlib import aclosing
 
 import httpx
 
@@ -33,7 +32,7 @@ async def fetch_pages(
             specific_errors_to_retry=httpx.TransportError,
         )
         pages = []
-        async with aclosing(engine.iter_results(urls)) as results:
+        async with engine.iter_results(urls) as results:
             async for task in results:
                 if task.error is not None:
                     raise task.error

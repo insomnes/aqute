@@ -1,7 +1,8 @@
 import asyncio
 import contextlib
 import warnings
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import assert_type
 
@@ -39,9 +40,13 @@ async def test_canonical_methods_preserve_types_without_deprecation_warnings():
         results = await engine.process_all([4, 5])
         assert_type(results, list[AquteTask[int, str]])
         assert [item.result for item in results] == ["4", "5"]
-        stream = engine.iter_results([6])
-        assert_type(stream, AsyncGenerator[AquteTask[int, str]])
-        assert [item.result async for item in stream] == ["6"]
+        context = engine.iter_results([6])
+        assert_type(
+            context, AbstractAsyncContextManager[AsyncIterator[AquteTask[int, str]]]
+        )
+        async with context as stream:
+            assert_type(stream, AsyncIterator[AquteTask[int, str]])
+            assert [item.result async for item in stream] == ["6"]
 
 
 @pytest.mark.asyncio
@@ -112,14 +117,15 @@ async def test_iterator_names_close_the_owned_work(legacy):
     engine = Aqute(stringify, 1)
     if legacy:
         with pytest.warns(DeprecationWarning, match="use iter_results") as caught:
-            stream = engine.apply_to_each(source())
+            legacy_stream = engine.apply_to_each(source())
         assert len(caught) == 1
         assert Path(caught[0].filename) == Path(__file__)
-        assert_type(stream, AsyncGenerator[AquteTask[int, str]])
+        assert_type(legacy_stream, AsyncGenerator[AquteTask[int, str]])
+        context = contextlib.aclosing(legacy_stream)
     else:
-        stream = engine.iter_results(source())
+        context = engine.iter_results(source())
     async with asyncio.timeout(1):
-        async with contextlib.aclosing(stream):
+        async with context as stream:
             assert (await anext(stream)).result == "1"
             await waiting.wait()
     assert cleaned.is_set()

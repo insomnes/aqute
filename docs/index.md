@@ -23,10 +23,12 @@ ordered list of doubled values and propagates handler errors.
 
 From a development checkout, run `uv run --locked python -m examples.quickstart`.
 
-`process_all(items)` returns a list in input order. `iter_results(items)` yields
-terminal results in completion order. Both accept `Iterable` and `AsyncIterable`
-inputs. Each `AquteTask` exposes `data`, `task_id`, `result`, `error`, and `success`.
-Inspect `error` or `success`: `None` can be a valid handler result.
+`await engine.process_all(items)` returns a list in input order. For
+completion-order streaming, use `async with engine.iter_results(items) as results`
+and iterate `results` inside the context. Both helpers accept `Iterable` and
+`AsyncIterable` inputs. Each terminal `AquteTask` exposes `data`, `task_id`, `result`,
+`error`, and `success`. Inspect `error` or `success`: `None` can be a valid handler
+result.
 
 See [usage](usage.md) for buffering, cleanup, retry, timeout, and compatibility
 contracts. The executable examples cover [streaming](streaming.md), a shared
@@ -45,7 +47,7 @@ decide which operations are safe to repeat. For remote inference, Aqute schedule
 handler attempts; model execution and provider-specific policy remain outside it.
 
 Configure both input and result queue limits to bound buffering; their defaults
-are unlimited. `process_all()` retains the complete result list. If streaming can
-stop early, close `iter_results()` with `contextlib.aclosing`. See
-[buffering and iterator cleanup](usage.md#buffering-and-iterator-cleanup) for the
-current lifecycle contract.
+are unlimited. `process_all()` retains the complete result list. The
+`iter_results()` context awaits producer and worker cleanup, including after early
+exit. See [streaming and cleanup](usage.md#streaming-and-cleanup) for the lifecycle
+contract.
