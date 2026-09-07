@@ -1,7 +1,7 @@
 import asyncio
 import logging
-from collections.abc import Coroutine
-from typing import Any, Callable, Generic, Optional, Union
+from collections.abc import Callable, Coroutine
+from typing import Any, Generic
 
 from aqute.errors import AquteTaskTimeoutError
 from aqute.ratelimiter import RateLimiter
@@ -17,8 +17,8 @@ class Worker(Generic[TData, TResult]):
         handle_coro: Callable[[TData], Coroutine[Any, Any, TResult]],
         input_q: AquteTaskQueueType[TData, TResult],
         output_q: AquteTaskQueueType[TData, TResult],
-        rate_limiter: Optional[RateLimiter] = None,
-        task_timeout_seconds: Optional[Union[int, float]] = None,
+        rate_limiter: RateLimiter | None = None,
+        task_timeout_seconds: int | float | None = None,
     ):
         self.handle_coro = handle_coro
         self.input_q = input_q
@@ -45,7 +45,7 @@ class Worker(Generic[TData, TResult]):
             task.result = await asyncio.wait_for(
                 self.handle_coro(task.data), timeout=self.task_timeout_seconds
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 f"Worker {self.name} on {task.task_id} timed out after "
                 f"{self.task_timeout_seconds} seconds"
@@ -65,10 +65,10 @@ class Foreman(Generic[TData, TResult]):
         self,
         handle_coro: Callable[[TData], Coroutine[Any, Any, TResult]],
         workers_count: int,
-        rate_limiter: Optional[RateLimiter] = None,
+        rate_limiter: RateLimiter | None = None,
         input_task_queue_size: int = 0,
         use_priority_queue: bool = False,
-        task_timeout_seconds: Optional[Union[int, float]] = None,
+        task_timeout_seconds: int | float | None = None,
     ):
         """
         Initializes a Worker instance to process tasks.
@@ -204,7 +204,7 @@ class Foreman(Generic[TData, TResult]):
                 logger.debug(f"Worker {i} already done, skipping adding end job")
                 continue
             await self.in_queue.put(
-                AquteTask(
+                AquteTask[TData, TResult](
                     data=END_MARKER,  # type: ignore
                     task_id=f"Finish_{i}",
                     _remaining_tries=1,

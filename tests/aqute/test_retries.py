@@ -1,11 +1,8 @@
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from typing import (
     Any,
-    Callable,
     NamedTuple,
-    Optional,
-    Union,
 )
 
 import pytest
@@ -21,10 +18,8 @@ async def non_failing_handler(i: int) -> str:
 class ShouldRetryTestCase(NamedTuple):
     name: str
 
-    specific_errors_to_retry: Optional[
-        Union[tuple[type[Exception], ...], type[Exception]]
-    ]
-    errors_to_not_retry: Optional[Union[tuple[type[Exception], ...], type[Exception]]]
+    specific_errors_to_retry: tuple[type[Exception], ...] | type[Exception] | None
+    errors_to_not_retry: tuple[type[Exception], ...] | type[Exception] | None
     task: AquteTask
 
     expected: bool
@@ -171,10 +166,8 @@ def check_susccess_and_fails(
 class RetryTestCase(NamedTuple):
     name: str
     retry_count: int
-    specific_errors_to_retry: Optional[
-        Union[tuple[type[Exception], ...], type[Exception]]
-    ]
-    errors_to_not_retry: Optional[Union[tuple[type[Exception], ...], type[Exception]]]
+    specific_errors_to_retry: tuple[type[Exception], ...] | type[Exception] | None
+    errors_to_not_retry: tuple[type[Exception], ...] | type[Exception] | None
     expected_successes: int
     expected_fails: int
 

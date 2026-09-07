@@ -44,7 +44,7 @@ to focus on the task logic rather than concurrency challenges.
   - [Type checking and generics](#type-checking-and-generics)
 
 # Install
-Python 3.9+ required:
+Python 3.11+ required:
 ```bash
 pip install aqute
 ```

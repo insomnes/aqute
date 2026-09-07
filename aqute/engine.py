@@ -1,13 +1,12 @@
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Coroutine, Iterable
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterable
+from types import TracebackType
 from typing import (
     Any,
-    Callable,
     Generic,
-    Optional,
-    Union,
+    Self,
 )
 
 from aqute.errors import AquteError, AquteTooManyTasksFailedError
@@ -24,20 +23,20 @@ class Aqute(Generic[TData, TResult]):
         handle_coro: Callable[[TData], Coroutine[Any, Any, TResult]],
         workers_count: int,
         *,
-        rate_limiter: Optional[RateLimiter] = None,
-        result_queue: Optional[AquteTaskQueueType[TData, TResult]] = None,
+        rate_limiter: RateLimiter | None = None,
+        result_queue: AquteTaskQueueType[TData, TResult] | None = None,
         retry_count: int = 0,
-        specific_errors_to_retry: Optional[
-            Union[tuple[type[Exception], ...], type[Exception]]
-        ] = None,
-        errors_to_not_retry: Optional[
-            Union[tuple[type[Exception], ...], type[Exception]]
-        ] = None,
-        start_timeout_seconds: Optional[Union[int, float]] = None,
+        specific_errors_to_retry: tuple[type[Exception], ...]
+        | type[Exception]
+        | None = None,
+        errors_to_not_retry: tuple[type[Exception], ...]
+        | type[Exception]
+        | None = None,
+        start_timeout_seconds: int | float | None = None,
         input_task_queue_size: int = 0,
         use_priority_queue: bool = False,
-        task_timeout_seconds: Optional[Union[int, float]] = None,
-        total_failed_tasks_limit: Optional[int] = None,
+        task_timeout_seconds: int | float | None = None,
+        total_failed_tasks_limit: int | None = None,
     ):
         """
         Engine for reliable running asynchronous tasks via queue with simple retry and
@@ -106,9 +105,9 @@ class Aqute(Generic[TData, TResult]):
 
         self._start_timeout_seconds = start_timeout_seconds
 
-        self.aiotask_of_run_load: Optional[asyncio.Task] = None
+        self.aiotask_of_run_load: asyncio.Task[None] | None = None
 
-    def start(self) -> asyncio.Task:
+    def start(self) -> asyncio.Task[None]:
         """
         Starts the Aqute processing.
 
@@ -161,7 +160,7 @@ class Aqute(Generic[TData, TResult]):
     async def add_task(
         self,
         task_data: TData,
-        task_id: Optional[str] = None,
+        task_id: str | None = None,
         task_priority: int = 1_000_000,
     ) -> str:
         """
@@ -358,7 +357,7 @@ class Aqute(Generic[TData, TResult]):
 
         try:
             await asyncio.wait_for(waiting_coro(), timeout=self._start_timeout_seconds)
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise AquteError(
                 f"Waited too long ({self._start_timeout_seconds}s) for available load"
             ) from exc
@@ -429,9 +428,14 @@ class Aqute(Generic[TData, TResult]):
         self._finished_tasks_count += 1
         await self.result_queue.put(task)
 
-    async def __aenter__(self):  # type: ignore
+    async def __aenter__(self) -> Self:
         self.start()
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):  # type: ignore
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         await self.stop()

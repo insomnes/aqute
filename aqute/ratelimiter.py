@@ -4,7 +4,7 @@ import math
 import random
 from collections import defaultdict, deque
 from time import perf_counter
-from typing import Optional, Protocol, Union
+from typing import Protocol
 
 from aqute.task import AquteTask
 
@@ -12,7 +12,7 @@ logger = logging.getLogger("aqute.ratelimiter")
 
 
 class RateLimiter(Protocol):
-    async def acquire(self, name: str = "", task: Optional[AquteTask] = None) -> None:
+    async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
         """Should block inside this method if needed"""
 
 
@@ -20,7 +20,7 @@ class TokenBucketRateLimiter:
     def __init__(
         self,
         max_rate: int,
-        time_period: Union[int, float] = 1,
+        time_period: int | float = 1,
         allow_burst: bool = False,
     ) -> None:
         """
@@ -58,7 +58,7 @@ class TokenBucketRateLimiter:
         self._tokens = min(self._bucket_capacity, self._tokens + tokens_to_add)
         self._last_fill = current_time
 
-    async def acquire(self, name: str = "", task: Optional[AquteTask] = None) -> None:
+    async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
         """
         Acquires permission to proceed based on the rate limits set.
 
@@ -82,7 +82,7 @@ class TokenBucketRateLimiter:
 
 
 class SlidingRateLimiter:
-    def __init__(self, max_rate: int, time_period: Union[int, float] = 1):
+    def __init__(self, max_rate: int, time_period: int | float = 1):
         """
         Initializes the `SlidingRateLimiter` with a given rate over a time period.
 
@@ -103,7 +103,7 @@ class SlidingRateLimiter:
         self._timestamps: deque[float] = deque(maxlen=max_rate)
         self._lock = asyncio.Lock()
 
-    async def acquire(self, name: str = "", task: Optional[AquteTask] = None) -> None:
+    async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
         """
         Acquires permission to proceed based on the rate limits set.
 
@@ -131,7 +131,7 @@ class SlidingRateLimiter:
 
 
 class PerWorkerRateLimiter:
-    def __init__(self, max_rate: int, time_period: Union[int, float] = 1):
+    def __init__(self, max_rate: int, time_period: int | float = 1):
         """
         Initializes the `PerWorkerRateLimiter` with a specified rate and time period
         for each unique worker.
@@ -154,7 +154,7 @@ class PerWorkerRateLimiter:
             lambda: TokenBucketRateLimiter(max_rate, time_period)
         )
 
-    async def acquire(self, name: str = "", task: Optional[AquteTask] = None) -> None:
+    async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
         """
         Acquires a token for a particular worker, identified by `name`,
         to proceed with an action.
@@ -177,7 +177,7 @@ class RandomizedIntervalRateLimiter:
     def __init__(
         self,
         max_rate: int,
-        time_period: Union[int, float] = 1,
+        time_period: int | float = 1,
         mean_target_multiplier: float = 0.9,
         std_dev: float = 0.2,
         lower_multiplier_bound: float = 0.0,
@@ -244,7 +244,7 @@ class RandomizedIntervalRateLimiter:
     def _get_sleep(self) -> float:
         return self._optimal_sleep * self._get_multiplier()
 
-    async def acquire(self, name: str = "", task: Optional[AquteTask] = None) -> None:
+    async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
         """
         Acquires permission to proceed based on the rate limits set.
 

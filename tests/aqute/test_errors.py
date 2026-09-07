@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 
@@ -32,10 +32,10 @@ async def test_wait_on_empty_load():
     assert str(exc.value).startswith("Cannot")
 
 
-async def aq_wait_coro(timeout: Optional[float]):
+async def aq_wait_coro(start_timeout: float | None):
     aqute = Aqute(
         workers_count=2,
-        start_timeout_seconds=timeout,
+        start_timeout_seconds=start_timeout,
         handle_coro=non_failing_handler,
         retry_count=0,
     )

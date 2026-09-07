@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Generic, Optional, TypeVar
+from typing import Generic, TypeVar
 
 END_MARKER = object()
 
@@ -14,8 +14,8 @@ class AquteTask(Generic[TData, TResult]):
     data: TData
     task_id: str
 
-    result: Optional[TResult] = None
-    error: Optional[Exception] = None
+    result: TResult | None = None
+    error: Exception | None = None
     success: bool = False
 
     _remaining_tries: int = 0

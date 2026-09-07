@@ -5,7 +5,7 @@ from aqute.task import AquteTask
 __all__ = [
     "Aqute",
     "AquteError",
+    "AquteTask",
     "AquteTaskTimeoutError",
     "AquteTooManyTasksFailedError",
-    "AquteTask",
 ]
