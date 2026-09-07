@@ -5,6 +5,7 @@ import warnings
 from collections.abc import (
     AsyncGenerator,
     AsyncIterable,
+    AsyncIterator,
     Callable,
     Coroutine,
     Generator,
@@ -268,18 +269,24 @@ class Aqute(Generic[TData, TResult]):
         self._all_tasks_added = True
         self._load_changed.set()
 
-    async def iter_results(
+    def iter_results(
         self,
         tasks_data: Iterable[TData] | AsyncIterable[TData],
         *,
         submission_batch_size: int = 1,
-    ) -> AsyncGenerator[AquteTask[TData, TResult]]:
+    ) -> contextlib.AbstractAsyncContextManager[
+        AsyncIterator[AquteTask[TData, TResult]]
+    ]:
         """
-        Asynchronously processes each task from the provided iterable.
+        Return a context that owns a single-use, lazy result iterator.
 
         Produce input concurrently with processing and yield terminal results
         in completion order. Finite input and result queues bound buffering.
-        Close a partially consumed iterator with contextlib.aclosing.
+        Use ``async with engine.iter_results(items) as results``. First iteration
+        starts processing; context entry alone does not consume or close input.
+        Context exit awaits producer and worker cleanup, including after a break,
+        consumer exception, or cancellation. Cleanup requires cooperative sources
+        and handlers. Drain retained results before reusing the engine.
         Source exceptions propagate after cancelling owned processing.
 
         Args:
@@ -292,12 +299,22 @@ class Aqute(Generic[TData, TResult]):
                 Batching can be slower when small input queues fill frequently.
 
         Returns:
-            An async iterator yielding results as `AquteTask` objects.
+            An async context manager yielding an iterator of `AquteTask` objects.
 
         Raises:
             ValueError: If submission_batch_size is not a positive integer.
                 Validation occurs when iteration starts, before consuming input.
         """
+        return contextlib.aclosing(
+            self._iter_results(tasks_data, submission_batch_size=submission_batch_size)
+        )
+
+    async def _iter_results(
+        self,
+        tasks_data: Iterable[TData] | AsyncIterable[TData],
+        *,
+        submission_batch_size: int = 1,
+    ) -> AsyncGenerator[AquteTask[TData, TResult]]:
         if not isinstance(submission_batch_size, int) or submission_batch_size < 1:
             raise ValueError("submission_batch_size must be a positive integer")
         async with self:
@@ -391,8 +408,8 @@ class Aqute(Generic[TData, TResult]):
         Raises:
             ValueError: If submission_batch_size is not a positive integer.
         """
-        async with contextlib.aclosing(
-            self.iter_results(tasks_data, submission_batch_size=submission_batch_size)
+        async with self.iter_results(
+            tasks_data, submission_batch_size=submission_batch_size
         ) as results:
             result = [task async for task in results]
         return sorted(result, key=lambda task: int(task.task_id))
@@ -632,10 +649,13 @@ class Aqute(Generic[TData, TResult]):
     def apply_to_each(
         self, tasks_data: Iterable[TData] | AsyncIterable[TData]
     ) -> AsyncGenerator[AquteTask[TData, TResult]]:
-        """Deprecated; use iter_results(). Return its generator so aclose propagates."""
+        """Deprecated generator API; close partial iteration with aclose/aclosing.
+
+        Prefer ``async with engine.iter_results(items) as results`` in new code.
+        """
         warnings.warn(
             "apply_to_each() is deprecated; use iter_results()",
             DeprecationWarning,
             stacklevel=2,
         )
-        return self.iter_results(tasks_data)
+        return self._iter_results(tasks_data)

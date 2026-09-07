@@ -46,8 +46,9 @@ async def test_iter_results():
     )
     results = []
 
-    async for r in aqute.iter_results(range(10)):
-        results.append(r)
+    async with aqute.iter_results(range(10)) as stream:
+        async for r in stream:
+            results.append(r)
 
     successes = [t for t in results if t.success]
     assert len(successes) == 9

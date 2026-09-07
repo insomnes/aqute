@@ -1,6 +1,38 @@
 # Usage
 
-## Buffering and iterator cleanup
+## Streaming and cleanup
+
+Use an async context to own streaming work:
+
+```python
+async with engine.iter_results(items) as results:
+    async for task in results:
+        consume(task)
+```
+
+Each call returns a context for one lazy, single-use iterator. The first iteration
+starts processing. Entering and leaving the context without iteration does not
+consume input or acquire ownership of its source. Results arrive in completion
+order as terminal `AquteTask` objects. `await engine.process_all(items)` owns the
+same context internally and returns a list in input order.
+
+Context exit waits for the producer and workers to stop after full consumption,
+an early `break`, a consumer exception, a source exception, or cancellation.
+Source and consumer errors propagate; handler errors remain task error values.
+Caller cancellation, including a deadline during cleanup, propagates through the
+existing cooperative cleanup path. Cleanup requires sources, handlers, and rate
+limiters to cooperate with cancellation; it cannot forcibly terminate them.
+Aqute closes started generator sources. Callers own other source resources,
+including custom iterators with `close()` or `aclose()` methods.
+
+Use each context and iterator once, and consume results inside the context.
+Use the engine sequentially. Before reusing it with a helper after partial
+consumption, call `drain_results()` to remove retained results. Otherwise, a helper
+can consume results from the previous run. Use a fresh engine when those results
+must remain in their original queue. Helpers own the run; use the manual API for
+externally managed producers and consumers.
+
+## Buffering
 
 Set both `input_task_queue_size=I` and `result_queue=asyncio.Queue(R)` to positive
 values to bound buffering. With `W` workers and one producer, Aqute retains at most
@@ -12,17 +44,6 @@ This is an item-count bound, not a byte limit. It excludes items retained by the
 source or caller and the growing list returned by `process_all()`. A queue size of
 zero is unlimited. Multiple independent producer calls can each hold an item
 while waiting for admission; the formula above assumes one producer.
-
-Use `async with contextlib.aclosing(engine.iter_results(items)) as results` when
-iteration can stop early. `async for` does not close an async generator after
-`break`. Closing or cancelling the iterator waits for its producer and workers.
-Aqute closes generator sources; callers own other source resources. Cleanup
-requires handlers and rate limiters to cooperate with cancellation.
-
-Before reusing an engine with a helper, call `drain_results()` to remove retained
-results. Otherwise, a helper can consume results from the previous run. Use a
-fresh engine when those results must remain in their original queue. Helpers own
-the run; use the manual API for externally managed producers and consumers.
 
 ## Concurrency, rate, and priority
 
@@ -163,9 +184,50 @@ breaking release; no removal version is currently scheduled.
 | `get_task_result()` | `await get_result()` |
 | `extract_all_results()` | `drain_results()` |
 | `apply_to_all(items)` | `await process_all(items)` |
-| `apply_to_each(items)` | `iter_results(items)` |
+| `apply_to_each(items)` | `async with iter_results(items) as results` |
 
 `start()`, `stop()`, and `add_task()` keep their names. Generic handler input and
 result types are preserved through both interfaces and the async context manager.
 For example, a handler accepting `int` makes `add_task("text")` a type error;
 this is an intentionally invalid call, not a runnable usage example.
+
+### Managed streaming migration
+
+This is a pre-1.0 signature and typing break for `iter_results()`. It is now a
+regular method returning
+`AbstractAsyncContextManager[AsyncIterator[AquteTask[TData, TResult]]]`, rather
+than an async generator returning `AsyncGenerator[AquteTask[TData, TResult]]`.
+The input remains `Iterable[TData] | AsyncIterable[TData]`; the keyword-only
+`submission_batch_size: int = 1` is unchanged. Validation still occurs on first
+iteration, before input consumption. No extra import or exported type is needed
+for normal use.
+
+Before:
+
+```python
+from contextlib import aclosing
+
+async with aclosing(engine.iter_results(items)) as results:
+    async for task in results:
+        consume(task)
+```
+
+After:
+
+```python
+async with engine.iter_results(items) as results:
+    async for task in results:
+        consume(task)
+```
+
+Also replace bare `async for task in engine.iter_results(items)` with the new
+context form. Call `anext(results)` on the iterator yielded by the context.
+Do not call `aclose()` on the context returned by `iter_results()`.
+
+Deprecated `apply_to_each(items)` retains its `AsyncGenerator` return type and
+warning. Existing `async for` callers still work. Use
+`async with contextlib.aclosing(engine.apply_to_each(items)) as results` or
+explicitly await that generator's `aclose()` when stopping early. Its compatibility
+wrapper shares the same processing and cleanup path; migrate new code to the
+managed `iter_results()` form. `process_all()` keeps its coroutine signature and
+ordered list return type.

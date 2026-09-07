@@ -3,7 +3,6 @@
 import asyncio
 import logging
 from collections import Counter
-from contextlib import aclosing
 from random import uniform
 
 from aqute import Aqute
@@ -40,7 +39,7 @@ async def main() -> list[int]:
         specific_errors_to_retry=ValueError,
     )
     values = []
-    async with aclosing(engine.iter_results(source())) as results:
+    async with engine.iter_results(source()) as results:
         async for task in results:
             if task.error is not None:
                 raise task.error

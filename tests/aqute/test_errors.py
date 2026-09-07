@@ -96,10 +96,11 @@ async def test_too_many_failed_tasks_error_with_helper_each(
 
     async with asyncio.timeout(1):
         with pytest.raises(AquteTooManyTasksFailedError) as exc:
-            async for _ in aqute.iter_results(
+            async with aqute.iter_results(
                 range(1, 6), submission_batch_size=batch_size
-            ):
-                pass
+            ) as results:
+                async for _ in results:
+                    pass
     assert "limit reached: 1" in str(exc.value)
 
 

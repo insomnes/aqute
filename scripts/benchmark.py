@@ -12,7 +12,6 @@ import json
 import platform
 import sys
 import time
-from contextlib import aclosing
 
 import aqute
 from aqute import Aqute
@@ -69,9 +68,7 @@ class Work:
             options = (
                 {} if batch_size is None else {"submission_batch_size": batch_size}
             )
-            async with aclosing(
-                engine.iter_results(self.source(), **options)
-            ) as results:
+            async with engine.iter_results(self.source(), **options) as results:
                 async for task in results:
                     self.consume(task)
         else:
