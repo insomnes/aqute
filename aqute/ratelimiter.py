@@ -187,25 +187,29 @@ class RandomizedIntervalRateLimiter:
         lower_upper_fluctuation: float = 0.005,
     ):
         """
-        Initializes the RandomizedIntervalRateLimiter with specified parameters,
-        defining the rate limiting behavior with randomized intervals.
-        Sleep interval duratation is randomized, but rate limiting is assured for
-        max_rate in time_period. Can be used to emulate more "human-like" behavior.
+        Limits grants to max_rate in each rolling time_period, with bounded jitter.
+
+        Each grant waits for quota, then for an additional randomized delay,
+        including at startup and after idle. Independent random phases reduce
+        counter-linked regularity; they do not model human behavior or guarantee
+        detection avoidance. Additional waits can reduce sustained throughput.
 
         Args:
             max_rate: Maximum allowable actions within the time period.
             time_period (optional): Finite positive period in seconds for rate
                 measurement. Defaults to 1 second.
-            mean_target_multiplier (optional): The mean multiplier influencing
-                the average sleep duration.
-            std_dev (optional): The standard deviation for the Gaussian distribution,
-                adding randomness to the multiplier.
+            mean_target_multiplier (optional): Mean of the Gaussian input, before
+                phase scaling and bounding. This is not the mean emitted delay.
+            std_dev (optional): Standard deviation of the Gaussian input.
             lower_multiplier_bound (optional): The lower bound for the multiplier,
                 ensuring a minimum sleep duration.
             upper_multiplier_bound (optional): The upper bound for the multiplier,
-                ensuring a maximum sleep duration.
-            lower_upper_fluctuation (optional): The fluctuation margin for the
-                multiplier bounds, adding variability when bounds are reached.
+                bounding the additional delay, not quota or scheduler waits.
+            lower_upper_fluctuation (optional): Inward bound adjustment, multiplied
+                by the same absolute sine of a uniform phase as the Gaussian input.
+                Use nonnegative bounds and fluctuation with twice the fluctuation
+                no greater than the difference between upper and lower bounds.
+                Multipliers convert to seconds through time_period / max_rate.
         """
         if max_rate < 1 or not 0 < time_period < math.inf:
             raise ValueError(
@@ -221,22 +225,17 @@ class RandomizedIntervalRateLimiter:
         self._lower_bound = lower_multiplier_bound
         self._upper_bound = upper_multiplier_bound
         self._fluctuation = lower_upper_fluctuation
-        self._gen_count = 0
 
         self._request_times: deque[float] = deque(maxlen=max_rate)
         self._lock = asyncio.Lock()
 
     def _get_multiplier(self) -> float:
         """
-        Determines the sleep time multiplier. The multiplier is based on a Gaussian
-        distribution and sinusoidal oscillation, ensuring variability within the
-        predefined bounds. This method is a key component in managing the randomized
-        intervals between actions.
+        Samples one phase for the Gaussian amplitude and both effective bounds.
         """
         value = random.gauss(self._mean_mul, self._std_dev)
-        oscillation = abs(math.sin(self._gen_count))
+        oscillation = abs(math.sin(random.uniform(0.0, math.tau)))
         value = value * oscillation
-        self._gen_count += 1
 
         fluctuation = oscillation * self._fluctuation
         max_value = min(self._upper_bound - fluctuation, value)

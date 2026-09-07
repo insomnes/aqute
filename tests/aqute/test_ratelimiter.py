@@ -32,7 +32,7 @@ async def test_with_ratelimiter(rl_name: str):
     limiters = {
         "Sliding": SlidingRateLimiter(5, 0.2),
         "Token Bucket": TokenBucketRateLimiter(5, 0.2),
-        # This parameters should ensure passing of this tests
+        # These parameters keep randomized completion within the shared budget.
         "Randomized": RandomizedIntervalRateLimiter(
             5, 0.2, mean_target_multiplier=0.3, upper_multiplier_bound=0.5
         ),
@@ -41,8 +41,14 @@ async def test_with_ratelimiter(rl_name: str):
         "Per Worker": PerWorkerRateLimiter(1, 0.4),
     }
     rate_limiter = limiters[rl_name]
+    handler_starts = []
+
+    async def timed_handler(i: int) -> str:
+        handler_starts.append(perf_counter())
+        return await non_failing_handler(i)
+
     aqute = Aqute(
-        workers_count=10, handle_coro=non_failing_handler, rate_limiter=rate_limiter
+        workers_count=10, handle_coro=timed_handler, rate_limiter=rate_limiter
     )
 
     start = perf_counter()
@@ -50,3 +56,9 @@ async def test_with_ratelimiter(rl_name: str):
     elapsed_time = perf_counter() - start
 
     assert 0.4 < elapsed_time < 0.5
+    if rl_name == "Randomized":
+        # The rolling cap must hold at the actual handler boundary too.
+        assert all(
+            handler_starts[i] - handler_starts[i - 5] >= 0.2
+            for i in range(5, len(handler_starts))
+        )
