@@ -37,6 +37,7 @@ class Worker(Generic[TData, TResult]):
         retry_filter: Callable[[AquteTask[TData, TResult]], bool] | None = None,
         retry_delay: Callable[[int, Exception], float] | None = None,
         _counters: _WorkerCounters | None = None,
+        _results_changed: asyncio.Event | None = None,
     ):
         self.handle_coro = handle_coro
         self.input_q = input_q
@@ -48,13 +49,14 @@ class Worker(Generic[TData, TResult]):
         self._retry_filter = retry_filter
         self._retry_delay = retry_delay
         self._counters = _counters if _counters is not None else _WorkerCounters()
+        self._results_changed = _results_changed
 
     async def run(self) -> None:
         while True:
             task = await self.input_q.get()
             self._counters.running += 1
             try:
-                logger.debug(f"Worker {self.name} got task {task.task_id}")
+                logger.debug("Worker %s got task %s", self.name, task.task_id)
                 if task.data is END_MARKER:
                     return
                 await self.handle_task(task)
@@ -89,6 +91,8 @@ class Worker(Generic[TData, TResult]):
         else:
             self._counters.failed += 1
         await self.output_q.put(task)
+        if self._results_changed is not None:
+            self._results_changed.set()
 
     async def _handle_attempt(
         self, task: AquteTask[TData, TResult], *, is_retry: bool
@@ -98,10 +102,15 @@ class Worker(Generic[TData, TResult]):
         try:
             if self.task_timeout_seconds is not None and self.task_timeout_seconds <= 0:
                 raise TimeoutError
-            async with asyncio.timeout(self.task_timeout_seconds):
+            if self.task_timeout_seconds is None:
                 if is_retry:
                     self._counters.retries += 1
                 task.result = await self.handle_coro(task.data)
+            else:
+                async with asyncio.timeout(self.task_timeout_seconds):
+                    if is_retry:
+                        self._counters.retries += 1
+                    task.result = await self.handle_coro(task.data)
         except TimeoutError:
             logger.warning(
                 f"Worker {self.name} on {task.task_id} timed out after "
@@ -188,6 +197,8 @@ class Foreman(Generic[TData, TResult]):
             self._worker_run = asyncio.create_task(
                 self._run_workers(), name="aqute-workers"
             )
+            changed = self._results_changed
+            self._worker_run.add_done_callback(lambda _: changed.set())
 
     async def add_task(self, task: AquteTask[TData, TResult]) -> None:
         """
@@ -222,23 +233,17 @@ class Foreman(Generic[TData, TResult]):
         Returns:
             AquteTask: The processed task from the queue.
         """
-        if not self.out_queue.empty():
-            return self.out_queue.get_nowait()
-        if self._worker_run is None:
-            return await self.out_queue.get()
-        result = asyncio.create_task(self.out_queue.get())
-        try:
-            await asyncio.wait(
-                (result, self._worker_run), return_when=asyncio.FIRST_COMPLETED
-            )
-            if result.done():
-                return result.result()
-            await self._worker_run
-            raise RuntimeError("Workers finished without another result")
-        finally:
-            result.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await result
+        # Keep this run's queue and notification if finalize/stop resets the pool.
+        queue, changed, run = self.out_queue, self._results_changed, self._worker_run
+        if run is None:
+            return await queue.get()
+        while queue.empty():
+            if run.done():
+                await run
+                raise RuntimeError("Workers finished without another result")
+            changed.clear()
+            await changed.wait()
+        return queue.get_nowait()
 
     async def finalize(self) -> None:
         """
@@ -283,6 +288,7 @@ class Foreman(Generic[TData, TResult]):
         logger.debug("Resetting workers")
         self.in_queue = self._create_task_queue(size=self._input_task_queue_size)
         self.out_queue = asyncio.Queue(maxsize=self._output_task_queue_size)
+        self._results_changed = asyncio.Event()
         self._workers = [
             Worker(
                 name=f"worker_{i}",
@@ -294,6 +300,7 @@ class Foreman(Generic[TData, TResult]):
                 retry_filter=self._retry_filter,
                 retry_delay=self._retry_delay,
                 _counters=self._counters,
+                _results_changed=self._results_changed,
             )
             for i in range(self._workers_count)
         ]

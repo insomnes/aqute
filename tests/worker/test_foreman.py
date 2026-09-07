@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 
 import pytest
 
@@ -57,6 +58,35 @@ async def test_foreman_finalize():
     await foreman.add_task(AquteTask(data="reused", task_id="3"))
     assert (await foreman.get_handled_task()).result == "handled-reused"
     await foreman.finalize()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stop", [False, True])
+async def test_waiting_reader_exits_when_pool_resets(stop):
+    """Stopping or finalizing must release an empty reader and permit reuse."""
+    foreman = Foreman(simple_handler, 1)
+    foreman.start()
+    reader = asyncio.create_task(foreman.get_handled_task())
+    try:
+        await asyncio.sleep(0)
+        async with asyncio.timeout(1):
+            if stop:
+                await foreman.stop()
+                with pytest.raises(asyncio.CancelledError):
+                    await reader
+            else:
+                await foreman.finalize()
+                with pytest.raises(RuntimeError, match="without another result"):
+                    await reader
+            foreman.start()
+            await foreman.add_task(AquteTask("reused", "1"))
+            assert (await foreman.get_handled_task()).result == "handled-reused"
+            await foreman.finalize()
+    finally:
+        reader.cancel()
+        with contextlib.suppress(asyncio.CancelledError, RuntimeError):
+            await reader
+        await foreman.stop()
 
 
 @pytest.mark.asyncio

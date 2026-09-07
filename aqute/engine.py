@@ -115,6 +115,7 @@ class Aqute(Generic[TData, TResult]):
 
         self._all_tasks_added = False
         self._load_changed = asyncio.Event()
+        self._results_changed = asyncio.Event()
 
         self._specific_errors_to_retry = specific_errors_to_retry
         self._errors_to_not_retry = errors_to_not_retry
@@ -155,9 +156,12 @@ class Aqute(Generic[TData, TResult]):
         """
         logger.debug("Starting aqute")
         if self.aiotask_of_run_load is None:
+            self._results_changed = asyncio.Event()
             self.aiotask_of_run_load = asyncio.create_task(
                 self._run_load(), name="aqute-load"
             )
+            changed = self._results_changed
+            self.aiotask_of_run_load.add_done_callback(lambda _: changed.set())
 
         return self.aiotask_of_run_load
 
@@ -286,6 +290,8 @@ class Aqute(Generic[TData, TResult]):
             producer = asyncio.create_task(
                 self._produce_tasks(tasks_data), name="aqute-producer"
             )
+            changed = self._results_changed
+            producer.add_done_callback(lambda _: changed.set())
             exposed = 0
             try:
                 while not producer.done() or exposed < self._added_tasks_count:
@@ -295,23 +301,10 @@ class Aqute(Generic[TData, TResult]):
                         exposed += 1
                         yield self.result_queue.get_nowait()
                         continue
-                    result = asyncio.create_task(self.result_queue.get())
-                    try:
-                        waiting = (result, load)
-                        if not producer.done():
-                            waiting = (*waiting, producer)
-                        await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
-                        if producer.done():
-                            await producer
-                        if result.done():
-                            exposed += 1
-                            yield result.result()
-                        elif load.done():
-                            await load
-                    finally:
-                        result.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await result
+                    if load.done():
+                        await load
+                    changed.clear()
+                    await changed.wait()
                 await producer
                 await load
             finally:
@@ -385,19 +378,16 @@ class Aqute(Generic[TData, TResult]):
         load = self.aiotask_of_run_load
         if load is None:
             raise AquteError("Cannot get task result without started load")
-        result = asyncio.create_task(self.result_queue.get())
-        try:
-            await asyncio.wait((result, load), return_when=asyncio.FIRST_COMPLETED)
-            if result.done():
-                return result.result()
-            if load.cancelled():
-                raise AquteError("Load was cancelled; call stop first")
-            await load
-            raise AquteError("Load finished without another task result")
-        finally:
-            result.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await result
+        changed = self._results_changed
+        while self.result_queue.empty():
+            if load.done():
+                if load.cancelled():
+                    raise AquteError("Load was cancelled; call stop first")
+                await load
+                raise AquteError("Load finished without another task result")
+            changed.clear()
+            await changed.wait()
+        return self.result_queue.get_nowait()
 
     def drain_results(self) -> list[AquteTask[TData, TResult]]:
         """
@@ -499,8 +489,10 @@ class Aqute(Generic[TData, TResult]):
         await self._put_task_to_result(handled_task)
 
         logger.debug(
-            f"Finished task {task_id} "
-            f"{self._added_tasks_count, self._finished_tasks_count}"
+            "Finished task %s (%s, %s)",
+            task_id,
+            self._added_tasks_count,
+            self._finished_tasks_count,
         )
 
     def _check_failed_tasks_limit(self) -> None:
@@ -532,6 +524,7 @@ class Aqute(Generic[TData, TResult]):
     async def _put_task_to_result(self, task: AquteTask[TData, TResult]) -> None:
         self._finished_tasks_count += 1
         await self.result_queue.put(task)
+        self._results_changed.set()
 
     async def __aenter__(self) -> Self:
         self.start()
