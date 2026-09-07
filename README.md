@@ -50,6 +50,11 @@ make build
 uv run --locked python -m examples.quickstart
 ```
 
-`make check` runs Ruff, ty, pytest, and the strict documentation build.
+`make check` runs Ruff, ty, pytest with coverage, and the strict documentation build.
 See [development](docs/development.md) for example commands and release behavior.
 CI tests Python 3.11 through 3.14. See [LICENSE](LICENSE).
+
+The measured coverage badge, XML, JSON, and HTML report are available in the
+`coverage-python-3.11` artifact of each successful [CI run](https://github.com/insomnes/aqute/actions/workflows/ci.yml).
+Run `make coverage` to generate the same files locally. See
+[coverage reporting](docs/development.md#coverage) for the measurement scope.

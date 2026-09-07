@@ -16,6 +16,8 @@ Repository = "https://github.com/insomnes/aqute"
 
 [dependency-groups]
 dev = [
+    "coverage>=7.10,<8",
+    "genbadge[coverage]>=1.1,<2",
     "httpx>=0.28,<1",
     "mkdocs>=1.6,<2",
     "pymdown-extensions>=10,<11",
@@ -37,6 +39,24 @@ source-include = ["tests/**", "examples/**", "docs/**", "scripts/**", "mkdocs.ym
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["aqute"]
+branch = true
+relative_files = true
+
+[tool.coverage.report]
+show_missing = true
+precision = 1
+
+[tool.coverage.xml]
+output = "reports/coverage/coverage.xml"
+
+[tool.coverage.json]
+output = "reports/coverage/coverage.json"
+
+[tool.coverage.html]
+directory = "reports/coverage/html"
 
 [tool.ty.environment]
 python-version = "3.11"

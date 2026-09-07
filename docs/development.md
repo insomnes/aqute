@@ -15,7 +15,8 @@ uv run --locked python -m examples.http_client
 uv run --locked python -m examples.service_shutdown
 ```
 
-`make check` runs Ruff formatting and lint checks, ty, pytest, and a strict documentation build.
+`make check` runs Ruff formatting and lint checks, ty, pytest with coverage, and a
+strict documentation build.
 The example tests verify returned values, failures, cleanup, and executable entry points. Commands use `uv.lock`; update dependencies with `uv lock --upgrade`
 and verify them with `make check`. CI tests Python 3.11, 3.12, 3.13, and 3.14.
 
@@ -33,3 +34,24 @@ Run commands from the repository root. `make docs` builds the site in `site/`;
 `uv run --locked mkdocs serve` provides a local preview. The documentation includes
 the actual files in `examples/`. Missing source files fail the build. No site
 deployment is configured.
+
+## Coverage
+
+`make coverage` runs the tests with line and branch coverage of `aqute/`. It prints
+missing lines and branches and generates these files under `reports/coverage/`:
+
+- `coverage.xml` and `coverage.json` for automated consumers.
+- `html/index.html` for per-file inspection.
+- `coverage.svg`, generated locally by `genbadge` from the measured XML report.
+
+The badge percentage combines covered lines and branches. Tests and examples are
+excluded from the coverage denominator. The main pytest process is measured;
+the subprocess quickstart checks verify wheel and entrypoint behavior separately.
+`make test` remains available for an uninstrumented run. No minimum percentage is
+enforced; use missing coverage to investigate supported behavior.
+
+CI collects coverage on Python 3.11 and uploads the report and badge together as
+`coverage-python-3.11`. Open a [CI run](https://github.com/insomnes/aqute/actions/workflows/ci.yml)
+and download its artifact to view them. Each run regenerates its badge; there is
+no checked-in percentage or external coverage account. Reports follow GitHub's
+artifact retention policy. Local files are overwritten by `make coverage`.
