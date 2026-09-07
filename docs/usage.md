@@ -33,7 +33,28 @@ Available implementations are in `aqute.ratelimiter`:
 - `TokenBucketRateLimiter` controls a shared rate, with optional bursts.
 - `SlidingRateLimiter` limits calls within a moving time window.
 - `PerWorkerRateLimiter` applies a separate token bucket to each worker.
-- `RandomizedIntervalRateLimiter` randomizes intervals around the configured rate.
+- `RandomizedIntervalRateLimiter` adds bounded random delays after rolling-cap waits.
+
+`RandomizedIntervalRateLimiter(N, T)` grants at most `N` acquisitions in each
+rolling `T` seconds. Each acquisition waits for quota, then for its full additional
+random delay. This delay also applies at startup, with sparse traffic and after
+idle. Quota waits and event-loop scheduling can increase the total wait beyond the
+configured jitter bounds. Sustained throughput can be below `N / T`.
+
+`mean_target_multiplier` and `std_dev` describe the Gaussian input, before scaling
+and bounding. They do not specify the mean or deviation of emitted intervals.
+An independent uniform phase supplies an absolute sine scale for each acquisition.
+The same scale multiplies the Gaussian input and `lower_upper_fluctuation`, which
+moves both multiplier bounds inward. The resulting bounded multiplier converts
+to seconds through `T / N`. Use nonnegative bounds and fluctuation, with
+`2 * lower_upper_fluctuation <= upper_multiplier_bound - lower_multiplier_bound`.
+The lower bound remains an additional minimum delay even when quota is available.
+
+Independent phases replace the previous request-counter ordering while retaining
+coupled amplitude and bound modulation. Seeded sequences and startup delays change.
+This reduces conspicuous counter-linked regularity; it does not model human
+behavior or guarantee avoidance of detection. Removing the old ordering can also
+reduce throughput, even when the overall delay distribution is similar.
 
 A custom limiter implements `async acquire(name="", task=None)`. It must propagate
 cancellation. CPU-heavy or blocking work in a handler blocks the event loop;
