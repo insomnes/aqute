@@ -261,8 +261,14 @@ class Foreman(Generic[TData, TResult]):
         try:
             if self._worker_run is not None:
                 self._worker_run.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                caller = asyncio.current_task()
+                assert caller is not None
+                cancelling = caller.cancelling()
+                try:
                     await self._worker_run
+                except asyncio.CancelledError:
+                    if caller.cancelling() > cancelling:
+                        raise
         finally:
             self.reset()
 

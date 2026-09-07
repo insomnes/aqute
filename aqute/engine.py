@@ -316,8 +316,14 @@ class Aqute(Generic[TData, TResult]):
                 await load
             finally:
                 producer.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                caller = asyncio.current_task()
+                assert caller is not None
+                cancelling = caller.cancelling()
+                try:
                     await producer
+                except asyncio.CancelledError:
+                    if caller.cancelling() > cancelling:
+                        raise
 
     async def _produce_tasks(
         self, tasks_data: Iterable[TData] | AsyncIterable[TData]
@@ -419,8 +425,14 @@ class Aqute(Generic[TData, TResult]):
         try:
             if self.aiotask_of_run_load is not None:
                 self.aiotask_of_run_load.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                caller = asyncio.current_task()
+                assert caller is not None
+                cancelling = caller.cancelling()
+                try:
                     await self.aiotask_of_run_load
+                except asyncio.CancelledError:
+                    if caller.cancelling() > cancelling:
+                        raise
         finally:
             try:
                 await self._foreman.stop()
