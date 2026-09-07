@@ -17,7 +17,8 @@ uv run --locked python -m examples.service_shutdown
 
 `make check` runs Ruff formatting and lint checks, ty, pytest with coverage, and a
 strict documentation build.
-The example tests verify returned values, failures, cleanup, and executable entry points. Commands use `uv.lock`; update dependencies with `uv lock --upgrade`
+The example tests verify returned values, failures, and cleanup. Entrypoint checks
+execute `quickstart`, `streaming`, and `http_client`. Commands use `uv.lock`; update dependencies with `uv lock --upgrade`
 and verify them with `make check`. CI tests Python 3.11, 3.12, 3.13, and 3.14.
 
 `make wheel-smoke SMOKE_PYTHON=3.14` builds a wheel, installs it without dependencies

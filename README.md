@@ -17,7 +17,7 @@ Pass your async handler to `Aqute`. Inside an async function, collect its result
 results = await Aqute(handle, workers_count=4).process_all(range(10))
 ```
 
-See the complete runnable [quickstart](examples/quickstart.py) for imports, a
+See the complete runnable [quickstart](https://github.com/insomnes/aqute/blob/main/examples/quickstart.py) for imports, a
 handler, error handling, and `asyncio.run()`. `process_all()` returns an awaited
 list in input order. `iter_results()` yields terminal results in completion order.
 Both accept synchronous and asynchronous input. Inspect each task's `error` or
@@ -25,12 +25,12 @@ Both accept synchronous and asynchronous input. Inspect each task's `error` or
 
 ## Documentation and examples
 
-[Usage](docs/usage.md) covers bounded buffering, iterator cleanup, rate limits,
+[Usage](https://github.com/insomnes/aqute/blob/main/docs/usage.md) covers bounded buffering, iterator cleanup, rate limits,
 retries, shutdown, counters, and deprecated method names. Full examples cover
-[streaming](examples/streaming.py), a shared [HTTP client](examples/http_client.py),
-and [service shutdown](examples/service_shutdown.py).
+[streaming](https://github.com/insomnes/aqute/blob/main/examples/streaming.py), a shared [HTTP client](https://github.com/insomnes/aqute/blob/main/examples/http_client.py),
+and [service shutdown](https://github.com/insomnes/aqute/blob/main/examples/service_shutdown.py).
 
-The [documentation source](docs/index.md) includes code directly from these
+The [documentation source](https://github.com/insomnes/aqute/blob/main/docs/index.md) includes code directly from these
 runnable files when built. To build and view the site locally:
 
 ```bash
@@ -51,10 +51,10 @@ uv run --locked python -m examples.quickstart
 ```
 
 `make check` runs Ruff, ty, pytest with coverage, and the strict documentation build.
-See [development](docs/development.md) for example commands and release behavior.
-CI tests Python 3.11 through 3.14. See [LICENSE](LICENSE).
+See [development](https://github.com/insomnes/aqute/blob/main/docs/development.md) for example commands and release behavior.
+CI tests Python 3.11 through 3.14. See [LICENSE](https://github.com/insomnes/aqute/blob/main/LICENSE).
 
 The measured coverage badge, XML, JSON, and HTML report are available in the
 `coverage-python-3.11` artifact of each successful [CI run](https://github.com/insomnes/aqute/actions/workflows/ci.yml).
 Run `make coverage` to generate the same files locally. See
-[coverage reporting](docs/development.md#coverage) for the measurement scope.
+[coverage reporting](https://github.com/insomnes/aqute/blob/main/docs/development.md#coverage) for the measurement scope.
