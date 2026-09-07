@@ -126,6 +126,8 @@ coverage.xml
 
 # Sphinx documentation
 docs/_build/
+site/
+reports/
 
 # PyBuilder
 target/
@@ -133,7 +135,7 @@ target/
 # pyenv
 .python-version
 
-# poetry
+# Virtual environments
 .venv
 venv/
 
@@ -578,3 +580,6 @@ notebooks/catboost_info/
 *.json
 catboost_info/
 *.xlsx
+
+# Ruff cache
+.ruff_cache/

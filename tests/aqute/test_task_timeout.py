@@ -1,5 +1,5 @@
 import asyncio
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 import pytest
 
@@ -8,7 +8,7 @@ from aqute import Aqute, AquteTaskTimeoutError
 
 class TaskTimeoutTestCase(NamedTuple):
     name: str
-    task_timeout: Optional[float]
+    task_timeout: float | None
 
     expected_success: int
     expected_errors: int
@@ -88,9 +88,9 @@ async def test_timeout(case: TaskTimeoutTestCase):
         await aqute.add_task(i)
 
     async with aqute:
-        await aqute.wait_till_end()
+        await aqute.finish()
 
-    handled_tasks = aqute.extract_all_results()
+    handled_tasks = aqute.drain_results()
     assert len(handled_tasks) == total
 
     errors = [t.error for t in handled_tasks if not t.success]

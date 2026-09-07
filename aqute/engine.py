@@ -1,18 +1,25 @@
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Coroutine, Iterable
+import warnings
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterable,
+    Callable,
+    Coroutine,
+    Generator,
+    Iterable,
+)
+from types import TracebackType
 from typing import (
     Any,
-    Callable,
     Generic,
-    Optional,
-    Union,
+    Self,
 )
 
 from aqute.errors import AquteError, AquteTooManyTasksFailedError
 from aqute.ratelimiter import RateLimiter
-from aqute.task import AquteTask, AquteTaskQueueType, TData, TResult
+from aqute.task import AquteCounters, AquteTask, AquteTaskQueueType, TData, TResult
 from aqute.worker import Foreman
 
 logger = logging.getLogger("aqute")
@@ -24,20 +31,21 @@ class Aqute(Generic[TData, TResult]):
         handle_coro: Callable[[TData], Coroutine[Any, Any, TResult]],
         workers_count: int,
         *,
-        rate_limiter: Optional[RateLimiter] = None,
-        result_queue: Optional[AquteTaskQueueType[TData, TResult]] = None,
+        rate_limiter: RateLimiter | None = None,
+        result_queue: AquteTaskQueueType[TData, TResult] | None = None,
         retry_count: int = 0,
-        specific_errors_to_retry: Optional[
-            Union[tuple[type[Exception], ...], type[Exception]]
-        ] = None,
-        errors_to_not_retry: Optional[
-            Union[tuple[type[Exception], ...], type[Exception]]
-        ] = None,
-        start_timeout_seconds: Optional[Union[int, float]] = None,
+        retry_delay: Callable[[int, Exception], float] | None = None,
+        specific_errors_to_retry: tuple[type[Exception], ...]
+        | type[Exception]
+        | None = None,
+        errors_to_not_retry: tuple[type[Exception], ...]
+        | type[Exception]
+        | None = None,
+        start_timeout_seconds: int | float | None = None,
         input_task_queue_size: int = 0,
         use_priority_queue: bool = False,
-        task_timeout_seconds: Optional[Union[int, float]] = None,
-        total_failed_tasks_limit: Optional[int] = None,
+        task_timeout_seconds: int | float | None = None,
+        total_failed_tasks_limit: int | None = None,
     ):
         """
         Engine for reliable running asynchronous tasks via queue with simple retry and
@@ -52,6 +60,9 @@ class Aqute(Generic[TData, TResult]):
                 to None.
             retry_count (optional): Number of task retry attempts upon
                 failure. Defaults to 0.
+            retry_delay (optional): Map the 1-based failed-attempt number and
+                exception to finite, nonnegative seconds. Defaults to zero delay.
+                The delay occupies a worker but is outside the handler timeout.
             specific_errors_to_retry (optional): Exceptions triggering
                 task retry. Defaults to None, so every error is retried.
             errors_to_not_retry (optional): Exceptions that should not be
@@ -94,21 +105,45 @@ class Aqute(Generic[TData, TResult]):
             input_task_queue_size=self._input_task_queue_size,
             use_priority_queue=self._use_priority_queue,
             task_timeout_seconds=self._task_timeout_seconds,
+            output_task_queue_size=self.result_queue.maxsize,
+            retry_filter=self._should_retry_task,
+            retry_delay=retry_delay,
         )
 
         self._added_tasks_count = 0
         self._finished_tasks_count = 0
 
         self._all_tasks_added = False
+        self._load_changed = asyncio.Event()
 
         self._specific_errors_to_retry = specific_errors_to_retry
         self._errors_to_not_retry = errors_to_not_retry
 
         self._start_timeout_seconds = start_timeout_seconds
 
-        self.aiotask_of_run_load: Optional[asyncio.Task] = None
+        self.aiotask_of_run_load: asyncio.Task[None] | None = None
 
-    def start(self) -> asyncio.Task:
+    @property
+    def counters(self) -> AquteCounters:
+        """Return an immutable snapshot for this run, reset after stop().
+
+        pending counts admitted tasks awaiting assignment, excluding blocked
+        submissions. running counts occupied workers, including rate-limit,
+        retry-delay, and result-publication waits. succeeded/failed count terminal
+        handler outcomes before publication. retries counts additional handler
+        invocations, excluding retries still waiting to start. Reading results
+        does not change counts; retained results are excluded from later runs.
+        """
+        counts = self._foreman._counters
+        return AquteCounters(
+            pending=self._foreman.in_queue.qsize(),
+            running=counts.running,
+            succeeded=counts.succeeded,
+            failed=counts.failed,
+            retries=counts.retries,
+        )
+
+    def start(self) -> asyncio.Task[None]:
         """
         Starts the Aqute processing.
 
@@ -119,14 +154,14 @@ class Aqute(Generic[TData, TResult]):
             asyncio.Task: The main processing task (`aiotask_of_run_load`).
         """
         logger.debug("Starting aqute")
-        self._foreman.start()
-
         if self.aiotask_of_run_load is None:
-            self.aiotask_of_run_load = asyncio.create_task(self._run_load())
+            self.aiotask_of_run_load = asyncio.create_task(
+                self._run_load(), name="aqute-load"
+            )
 
         return self.aiotask_of_run_load
 
-    async def wait_till_end(self) -> None:
+    async def finish(self) -> None:
         """
         Awaits the completion of Aqute's main processing task.
 
@@ -144,11 +179,11 @@ class Aqute(Generic[TData, TResult]):
         logger.debug("Waiting till aqute end")
         if self.aiotask_of_run_load is None:
             raise AquteError("Cannot wait for not started load")
-        self.set_all_tasks_added()
+        self.finish_submitting()
         await self.aiotask_of_run_load
         logger.debug("Aqute load task ended")
 
-    async def start_and_wait(self) -> None:
+    async def run(self) -> None:
         """
         Initiates Aqute's processing and awaits its completion.
 
@@ -156,12 +191,12 @@ class Aqute(Generic[TData, TResult]):
         tasks to finish. Ensures that all processing completes before exiting.
         """
         self.start()
-        await self.wait_till_end()
+        await self.finish()
 
     async def add_task(
         self,
         task_data: TData,
-        task_id: Optional[str] = None,
+        task_id: str | None = None,
         task_priority: int = 1_000_000,
     ) -> str:
         """
@@ -189,13 +224,37 @@ class Aqute(Generic[TData, TResult]):
             _remaining_tries=self._task_tries_count,
             _priority=task_priority,
         )
-        await self._foreman.add_task(task)
+        load = self.aiotask_of_run_load
+        if load is not None and (load.done() or load.cancelling()):
+            if load.cancelled() or load.cancelling():
+                raise AquteError("Load was cancelled; call stop first")
+            await load
+            raise AquteError("Cannot add a task after load completion; call stop first")
+        if load is None or not self._foreman.in_queue.full():
+            await self._foreman.add_task(task)
+        else:
+            admission = asyncio.create_task(self._foreman.add_task(task))
+            try:
+                await asyncio.wait(
+                    (admission, load), return_when=asyncio.FIRST_COMPLETED
+                )
+                if load.done():
+                    if load.cancelled():
+                        raise AquteError("Load was cancelled; call stop first")
+                    await load
+                    raise AquteError("Load finished before the task could be added")
+                await admission
+            finally:
+                admission.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await admission
 
         self._added_tasks_count += 1
+        self._load_changed.set()
 
         return task_id
 
-    def set_all_tasks_added(self) -> None:
+    def finish_submitting(self) -> None:
         """
         Sets the internal flag to indicate all tasks have been added.
         """
@@ -203,16 +262,18 @@ class Aqute(Generic[TData, TResult]):
             return
         logger.debug("Set all tasks added flag to: True")
         self._all_tasks_added = True
+        self._load_changed.set()
 
-    async def apply_to_each(
-        self, tasks_data: Iterable[TData]
-    ) -> AsyncIterator[AquteTask[TData, TResult]]:
+    async def iter_results(
+        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+    ) -> AsyncGenerator[AquteTask[TData, TResult]]:
         """
         Asynchronously processes each task from the provided iterable.
 
-        Each piece of data in `tasks_data` is converted into a task and added
-        for processing. Once all tasks are added, results are yielded as they
-        complete.
+        Produce input concurrently with processing and yield terminal results
+        in completion order. Finite input and result queues bound buffering.
+        Close a partially consumed iterator with contextlib.aclosing.
+        Source exceptions propagate after cancelling owned processing.
 
         Args:
             tasks_data: Iterable containing data for each task.
@@ -220,17 +281,75 @@ class Aqute(Generic[TData, TResult]):
         Returns:
             An async iterator yielding results as `AquteTask` objects.
         """
-        for data in tasks_data:
-            await self.add_task(data)
-        self.set_all_tasks_added()
-        exposed = 0
         async with self:
-            while exposed != self._added_tasks_count:
-                yield await self.get_task_result()
-                exposed += 1
+            load = self.start()
+            producer = asyncio.create_task(
+                self._produce_tasks(tasks_data), name="aqute-producer"
+            )
+            exposed = 0
+            try:
+                while not producer.done() or exposed < self._added_tasks_count:
+                    if producer.done():
+                        await producer
+                    if not self.result_queue.empty():
+                        exposed += 1
+                        yield self.result_queue.get_nowait()
+                        continue
+                    result = asyncio.create_task(self.result_queue.get())
+                    try:
+                        waiting = (result, load)
+                        if not producer.done():
+                            waiting = (*waiting, producer)
+                        await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
+                        if producer.done():
+                            await producer
+                        if result.done():
+                            exposed += 1
+                            yield result.result()
+                        elif load.done():
+                            await load
+                    finally:
+                        result.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await result
+                await producer
+                await load
+            finally:
+                producer.cancel()
+                caller = asyncio.current_task()
+                assert caller is not None
+                cancelling = caller.cancelling()
+                try:
+                    await producer
+                except asyncio.CancelledError:
+                    if caller.cancelling() > cancelling:
+                        raise
 
-    async def apply_to_all(
-        self, tasks_data: Iterable[TData]
+    async def _produce_tasks(
+        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+    ) -> None:
+        if isinstance(tasks_data, AsyncIterable):
+            source = aiter(tasks_data)
+            try:
+                async for data in source:
+                    await self.add_task(data)
+                    await asyncio.sleep(0)
+            finally:
+                if isinstance(source, AsyncGenerator):
+                    await source.aclose()
+        else:
+            source = iter(tasks_data)
+            try:
+                for data in source:
+                    await self.add_task(data)
+                    await asyncio.sleep(0)
+            finally:
+                if isinstance(source, Generator):
+                    source.close()
+        self.finish_submitting()
+
+    async def process_all(
+        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
     ) -> list[AquteTask[TData, TResult]]:
         """
         Asynchronously processes all tasks from the provided iterable.
@@ -246,46 +365,41 @@ class Aqute(Generic[TData, TResult]):
             A list of `AquteTask` objects with results, ordered as in the
             input iterable.
         """
-        inp_len = 0
+        async with contextlib.aclosing(self.iter_results(tasks_data)) as results:
+            result = [task async for task in results]
+        return sorted(result, key=lambda task: int(task.task_id))
 
-        for data in tasks_data:
-            await self.add_task(data)
-            inp_len += 1
-
-        self.set_all_tasks_added()
-
-        result: list[AquteTask[TData, TResult]] = [None] * inp_len  # type: ignore
-
-        exposed = 0
-
-        async with self:
-            while exposed != self._added_tasks_count:
-                task_result = await self.get_task_result()
-                result[int(task_result.task_id)] = task_result
-                exposed += 1
-
-        return result
-
-    async def get_task_result(self) -> AquteTask[TData, TResult]:
+    async def get_result(self) -> AquteTask[TData, TResult]:
         """
         Get first available task result in the result queue
 
         Returns:
             AquteTask with result or error set
         Raises:
+            AquteError: If no load is running or a completed load has no more results.
             AquteTooManyTasksFailedError: If there was limit on failed tasks
                 and it was reached.
         """
-        while True:
-            with contextlib.suppress(asyncio.TimeoutError):
-                return await asyncio.wait_for(self.result_queue.get(), timeout=0.1)
-            if self.aiotask_of_run_load is None:
-                raise AquteError("Cannot get task result without started load")
-            if self.aiotask_of_run_load.done():
-                self.aiotask_of_run_load.result()
-            continue
+        if not self.result_queue.empty():
+            return self.result_queue.get_nowait()
+        load = self.aiotask_of_run_load
+        if load is None:
+            raise AquteError("Cannot get task result without started load")
+        result = asyncio.create_task(self.result_queue.get())
+        try:
+            await asyncio.wait((result, load), return_when=asyncio.FIRST_COMPLETED)
+            if result.done():
+                return result.result()
+            if load.cancelled():
+                raise AquteError("Load was cancelled; call stop first")
+            await load
+            raise AquteError("Load finished without another task result")
+        finally:
+            result.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await result
 
-    def extract_all_results(self) -> list[AquteTask[TData, TResult]]:
+    def drain_results(self) -> list[AquteTask[TData, TResult]]:
         """
         Retrieves all the results available in the result queue.
 
@@ -303,41 +417,49 @@ class Aqute(Generic[TData, TResult]):
 
     async def stop(self) -> None:
         """
-        Asynchronously stops Aqute's processing.
+        Cancel processing and wait for worker cleanup before resetting counters.
 
-        The method signals the foreman to halt and resets internal counters. If
-        `aiotask_of_run_load` is active, it's cancelled, and the method waits
-        briefly to ensure it's terminated. Once stopped, Aqute's state is reset
-        to its initial post-creation state.
-
-        Note:
-            After stopping, Aqute's state is identical to a freshly created instance.
-
+        Completed results remain available. Handlers and rate limiters must
+        cooperate with asyncio cancellation. The instance can then be reused.
         """
-        await self._foreman.stop()
-
-        self._added_tasks_count = 0
-        self._finished_tasks_count = 0
-
-        if self.aiotask_of_run_load is None:
-            return
-
-        logger.debug("Stopping aqute")
-        self.aiotask_of_run_load.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await asyncio.wait_for(self.aiotask_of_run_load, timeout=2)
-        self.aiotask_of_run_load = None
-        self._all_tasks_added = False
-
-        logger.debug("Aqute stopped")
+        try:
+            if self.aiotask_of_run_load is not None:
+                self.aiotask_of_run_load.cancel()
+                caller = asyncio.current_task()
+                assert caller is not None
+                cancelling = caller.cancelling()
+                try:
+                    await self.aiotask_of_run_load
+                except asyncio.CancelledError:
+                    if caller.cancelling() > cancelling:
+                        raise
+        finally:
+            try:
+                await self._foreman.stop()
+            finally:
+                self.aiotask_of_run_load = None
+                self._added_tasks_count = 0
+                self._finished_tasks_count = 0
+                self._failed_tasks = 0
+                self._all_tasks_added = False
+                self._load_changed.clear()
+                self._foreman._counters.reset()
 
     async def _run_load(self) -> None:
-        await self._wait_till_can_start()
-        while self._should_proceed():
-            handled_task = await self._foreman.get_handled_task()
-            await self._process_handled_task(handled_task)
+        self._foreman.start()
+        try:
+            await self._wait_till_can_start()
+            while self._should_proceed():
+                self._load_changed.clear()
+                if self._added_tasks_count == self._finished_tasks_count:
+                    await self._load_changed.wait()
+                    continue
+                handled_task = await self._foreman.get_handled_task()
+                await self._process_handled_task(handled_task)
 
-        await self._foreman.finalize()
+            await self._foreman.finalize()
+        finally:
+            await self._foreman.stop()
 
     def _should_proceed(self) -> bool:
         if not self._all_tasks_added:
@@ -348,17 +470,17 @@ class Aqute(Generic[TData, TResult]):
         if self._start_timeout_seconds is None:
             return
 
-        waiting_timer = min(0.1, self._start_timeout_seconds)
-
-        async def waiting_coro() -> None:
-            while True:
-                if self._added_tasks_count > self._finished_tasks_count:
-                    break
-                await asyncio.sleep(waiting_timer)
-
         try:
-            await asyncio.wait_for(waiting_coro(), timeout=self._start_timeout_seconds)
-        except asyncio.TimeoutError as exc:
+            if self._start_timeout_seconds <= 0:
+                raise TimeoutError
+            async with asyncio.timeout(self._start_timeout_seconds):
+                while (
+                    self._added_tasks_count == self._finished_tasks_count
+                    and not self._all_tasks_added
+                ):
+                    self._load_changed.clear()
+                    await self._load_changed.wait()
+        except TimeoutError as exc:
             raise AquteError(
                 f"Waited too long ({self._start_timeout_seconds}s) for available load"
             ) from exc
@@ -369,7 +491,8 @@ class Aqute(Generic[TData, TResult]):
         task_id = handled_task.task_id
 
         if handled_task.error:
-            await self._process_error_task(handled_task)
+            await self._put_task_to_result(handled_task)
+            self._check_failed_tasks_limit()
             return
 
         handled_task.success = True
@@ -379,25 +502,6 @@ class Aqute(Generic[TData, TResult]):
             f"Finished task {task_id} "
             f"{self._added_tasks_count, self._finished_tasks_count}"
         )
-
-    async def _process_error_task(self, task: AquteTask[TData, TResult]) -> None:
-        task._remaining_tries -= 1
-        task_id = task.task_id
-
-        if not self._should_retry_task(task):
-            await self._put_task_to_result(task)
-            logger.debug(
-                f"Task {task_id} is not retriable, finishing task "
-                f"{self._added_tasks_count, self._finished_tasks_count}"
-            )
-            self._check_failed_tasks_limit()
-            return
-
-        task.error = None
-        logger.debug(
-            f"Retrying task {task_id} with remaining tries {task._remaining_tries}"
-        )
-        await self._foreman.add_task(task)
 
     def _check_failed_tasks_limit(self) -> None:
         if self._total_failed_limit is None:
@@ -429,9 +533,81 @@ class Aqute(Generic[TData, TResult]):
         self._finished_tasks_count += 1
         await self.result_queue.put(task)
 
-    async def __aenter__(self):  # type: ignore
+    async def __aenter__(self) -> Self:
         self.start()
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):  # type: ignore
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         await self.stop()
+
+    def set_all_tasks_added(self) -> None:
+        """Deprecated; use finish_submitting()."""
+        warnings.warn(
+            "set_all_tasks_added() is deprecated; use finish_submitting()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.finish_submitting()
+
+    async def wait_till_end(self) -> None:
+        """Deprecated; use finish()."""
+        warnings.warn(
+            "wait_till_end() is deprecated; use finish()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self.finish()
+
+    async def start_and_wait(self) -> None:
+        """Deprecated; use run()."""
+        warnings.warn(
+            "start_and_wait() is deprecated; use run()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        await self.run()
+
+    async def get_task_result(self) -> AquteTask[TData, TResult]:
+        """Deprecated; use get_result()."""
+        warnings.warn(
+            "get_task_result() is deprecated; use get_result()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await self.get_result()
+
+    def extract_all_results(self) -> list[AquteTask[TData, TResult]]:
+        """Deprecated; use drain_results()."""
+        warnings.warn(
+            "extract_all_results() is deprecated; use drain_results()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.drain_results()
+
+    async def apply_to_all(
+        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+    ) -> list[AquteTask[TData, TResult]]:
+        """Deprecated; use process_all()."""
+        warnings.warn(
+            "apply_to_all() is deprecated; use process_all()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await self.process_all(tasks_data)
+
+    def apply_to_each(
+        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
+    ) -> AsyncGenerator[AquteTask[TData, TResult]]:
+        """Deprecated; use iter_results(). Return its generator so aclose propagates."""
+        warnings.warn(
+            "apply_to_each() is deprecated; use iter_results()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.iter_results(tasks_data)

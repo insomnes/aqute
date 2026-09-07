@@ -2,38 +2,50 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   checks:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        command:
-        - "ruff check ."
-        - "ruff format --check ."
-        - "mypy ."
-        - "pytest -v ."
-
     steps:
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.10"
+          python-version: "3.11"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: make lint
+      - run: make coverage
+      - name: Upload measured coverage report and badge
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-python-3.11
+          path: reports/coverage/
+          if-no-files-found: error
+      - run: make docs
+      - run: make build
 
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: 3.9
-
-    - name: Install Poetry
-      run: |
-        curl -sSL https://install.python-poetry.org | python3 -
-
-    - name: Install dependencies
-      run: make install
-
-    - name: Run check
-      run: |
-        source $(poetry env info --path)/bin/activate
-        ${{ matrix.command }}
-
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.10"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv sync --locked
+      - run: make test
+      - name: Test installed wheel outside the checkout
+        env:
+          SMOKE_PYTHON: ${{ matrix.python-version }}
+        run: make wheel-smoke

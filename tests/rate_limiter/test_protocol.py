@@ -1,5 +1,3 @@
-from typing import Optional
-
 import pytest
 
 from aqute import Aqute, AquteTask
@@ -11,8 +9,9 @@ class StoringRateLimiter(RateLimiter):
         self.store = []
 
     async def acquire(
-        self, name: str = "", task: Optional[AquteTask] = None, **kwargs
+        self, name: str = "", task: AquteTask | None = None, **kwargs
     ) -> None:
+        assert task is not None
         self.store.append((name, task.data, task.task_id, kwargs))
 
 
@@ -26,6 +25,7 @@ async def test_rate_limiter_protocol():
     async def handler(i: int) -> str:
         return f"Result {i}"
 
-    aq = Aqute(handler, 1, rate_limiter=StoringRateLimiter())
-    await aq.apply_to_all([1, 2])
-    assert aq._rate_limiter.store == answer
+    limiter = StoringRateLimiter()
+    aq = Aqute(handler, 1, rate_limiter=limiter)
+    await aq.process_all([1, 2])
+    assert limiter.store == answer

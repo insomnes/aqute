@@ -31,7 +31,7 @@ async def run_with_queue_size(
             await aqute.add_task(i)
             add_timings.append(perf_counter() - start)
 
-        await aqute.wait_till_end()
+        await aqute.finish()
         total_elapsed = perf_counter() - total_start
 
     should_take = tasks_to_add * sleep_time / workers_count

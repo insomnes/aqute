@@ -1,11 +1,8 @@
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from typing import (
     Any,
-    Callable,
     NamedTuple,
-    Optional,
-    Union,
 )
 
 import pytest
@@ -21,10 +18,8 @@ async def non_failing_handler(i: int) -> str:
 class ShouldRetryTestCase(NamedTuple):
     name: str
 
-    specific_errors_to_retry: Optional[
-        Union[tuple[type[Exception], ...], type[Exception]]
-    ]
-    errors_to_not_retry: Optional[Union[tuple[type[Exception], ...], type[Exception]]]
+    specific_errors_to_retry: tuple[type[Exception], ...] | type[Exception] | None
+    errors_to_not_retry: tuple[type[Exception], ...] | type[Exception] | None
     task: AquteTask
 
     expected: bool
@@ -154,14 +149,14 @@ async def add_tasks(engine: Aqute, n: int):
 
 
 def check_susccess(aqute: Aqute, should_be: int):
-    successes = [t for t in aqute.extract_all_results() if t.success]
+    successes = [t for t in aqute.drain_results() if t.success]
     assert len(successes) == should_be
 
 
 def check_susccess_and_fails(
     aqute: Aqute, success_count: int, fails_count
 ) -> list[AquteTask]:
-    results = aqute.extract_all_results()
+    results = aqute.drain_results()
     successes = [t for t in results if t.success]
     fails = [t for t in results if not t.success]
     assert len(successes) == success_count and len(fails) == fails_count
@@ -171,10 +166,8 @@ def check_susccess_and_fails(
 class RetryTestCase(NamedTuple):
     name: str
     retry_count: int
-    specific_errors_to_retry: Optional[
-        Union[tuple[type[Exception], ...], type[Exception]]
-    ]
-    errors_to_not_retry: Optional[Union[tuple[type[Exception], ...], type[Exception]]]
+    specific_errors_to_retry: tuple[type[Exception], ...] | type[Exception] | None
+    errors_to_not_retry: tuple[type[Exception], ...] | type[Exception] | None
     expected_successes: int
     expected_fails: int
 
@@ -366,7 +359,7 @@ async def test_retry(case: RetryTestCase):
     )
     async with aqute:
         await add_tasks(aqute, case.expected_successes + case.expected_fails)
-        await aqute.wait_till_end()
+        await aqute.finish()
 
     res = check_susccess_and_fails(aqute, case.expected_successes, case.expected_fails)
 

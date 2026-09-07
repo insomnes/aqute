@@ -1,55 +1,43 @@
-BC="\\033[1\;96m"
-YC="\\033[1\;33m"
-NC="\\033[39m"
+.PHONY: install lint ruff-check-format ruff ty format test coverage docs check build wheel-smoke
 
-.PHONY: install lint black ruff isort mypy black-format isort-format format test mypy-strict
+SMOKE_PYTHON ?= 3.11
 
 install:
-	@poetry install --with test,lint
+	uv sync --locked
 
 ruff-check-format:
-	@echo -e "${BC}Checking ruff format${NC}" && ruff format --check .
+	uv run --locked ruff format --check .
 
 ruff:
-	@echo -e "${BC}Checking ruff rules${NC}" && ruff check .
+	uv run --locked ruff check .
 
-mypy:
-	@echo -e "${BC}Linting via mypy${NC}" && mypy .
+ty:
+	uv run --locked ty check
 
-typos:
-	@echo -e "${BC}Linting via typos${NC}" && typos -v aqute tests README.md
+lint: ruff-check-format ruff ty
 
-
-lint: ruff-check-format ruff mypy typos
-
-
-import-format:
-	@echo -e "${YC}Formatting imports via ruff${NC}" && ruff check --select=I --fix .
-
-ruff-format:
-	@echo -e "${YC}Formatting via ruff${NC}" && ruff format .
-
-format: import-format ruff-format
+format:
+	uv run --locked ruff check --select I --fix .
+	uv run --locked ruff format .
 
 test:
-	@pytest -v .
+	uv run --locked pytest
 
-mypy-strict:
-	@mypy \
-		--disallow-any-unimported \
-		--disallow-any-decorated \
-		--disallow-subclassing-any \
-		--disallow-untyped-calls \
-		--disallow-untyped-defs \
-		--check-untyped-defs \
-		--disallow-untyped-decorators \
-		--no-implicit-optional \
-		--strict-optional \
-		--warn-redundant-casts \
-		--warn-unused-ignores \
-		--warn-return-any \
-		--warn-unreachable \
-		--warn-no-return \
-		--warn-unused-configs \
-		--strict-equality \
-		.
+coverage:
+	uv run --locked coverage run -m pytest
+	uv run --locked coverage report
+	uv run --locked coverage xml
+	uv run --locked coverage json
+	uv run --locked coverage html
+	uv run --locked genbadge coverage --local -i reports/coverage/coverage.xml -o reports/coverage/coverage.svg
+
+docs:
+	uv run --locked mkdocs build --strict
+
+check: lint coverage docs
+
+build:
+	uv build --no-sources
+
+wheel-smoke:
+	bash scripts/check-wheel.sh "$(SMOKE_PYTHON)"
