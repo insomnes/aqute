@@ -32,9 +32,30 @@ tag (optional `v` prefix), builds with `uv_build`, and publishes through GitHub'
 trusted PyPI identity. See [LICENSE](https://github.com/insomnes/aqute/blob/main/LICENSE).
 
 Run commands from the repository root. `make docs` builds the site in `site/`;
-`uv run --locked mkdocs serve` provides a local preview. The documentation includes
-the actual files in `examples/`. Missing source files fail the build. No site
-deployment is configured.
+`uv run --locked mkdocs serve` provides a local preview at
+`http://127.0.0.1:8000/aqute/`. The documentation includes the actual files in
+`examples/`. Missing source files fail the build.
+
+## Documentation publication
+
+The documentation site is [insomnes.github.io/aqute](https://insomnes.github.io/aqute/).
+The [Documentation workflow](https://github.com/insomnes/aqute/actions/workflows/docs.yml)
+runs `make docs` with the locked development environment on pull requests and
+pushes to `main`. Pull requests only build the site. Successful builds from `main`
+in `insomnes/aqute` upload `site/` and deploy it through the `github-pages`
+environment. Only the deployment job receives Pages and OIDC write permissions.
+Runs for the same Git ref are serialized without cancelling an active run.
+
+Before the first deployment, a repository administrator must select **GitHub
+Actions** under **Settings > Pages > Build and deployment > Source**. Configure the
+`github-pages` environment to allow deployments only from the `main` branch.
+See GitHub's [publishing source instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
+
+To redeploy, open the Documentation workflow, select **Run workflow**, and choose
+`main`. Manual runs from other refs skip both jobs. The deployment job links to
+the published site. After deployment, check the homepage, navigation, example
+pages, and static assets under `/aqute/`. `make docs` verifies the local build;
+it does not verify publication.
 
 ## Coverage
 
