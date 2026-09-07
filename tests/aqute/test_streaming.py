@@ -64,7 +64,7 @@ async def test_submission_batch_gives_ready_coroutines_a_turn(
 
     items = async_source() if asynchronous else source()
     options = {} if batch_size is None else {"submission_batch_size": batch_size}
-    engine = Aqute(echo, 2)
+    engine = Aqute(echo, 2, input_task_queue_size=0, result_queue=asyncio.Queue(0))
     async with asyncio.timeout(1):
         if collect:
             results = await engine.process_all(items, **options)
@@ -433,7 +433,12 @@ async def test_cancelling_helper_cleans_waiting_source(collect, consume_result):
 @pytest.mark.parametrize("batch_size", [1, 32])
 async def test_drain_retained_results_before_reusing_helper(batch_size):
     completed = asyncio.Event()
+    submitted = asyncio.Event()
     handled = []
+
+    def source():
+        yield from [1, 2, 3]
+        submitted.set()
 
     async def handler(value: int) -> int:
         handled.append(value)
@@ -444,10 +449,11 @@ async def test_drain_retained_results_before_reusing_helper(batch_size):
     engine = Aqute(handler, 2)
     async with asyncio.timeout(1):
         async with engine.iter_results(
-            [1, 2, 3], submission_batch_size=batch_size
+            source(), submission_batch_size=batch_size
         ) as results:
             first = await anext(results)
             await completed.wait()
+            await submitted.wait()
             # Waiting for the public run drains completed work into retained results.
             await engine.finish()
         retained = engine.drain_results()
