@@ -98,7 +98,8 @@ async def test_backoff_does_not_block_other_available_worker():
         return 0.05
 
     engine = Aqute(handler, 2, retry_count=1, retry_delay=delay)
-    results = [result async for result in engine.iter_results([1, 2])]
+    async with engine.iter_results([1, 2]) as stream:
+        results = [result async for result in stream]
     assert [result.result for result in results] == [2, 1]
     assert attempts == {1: 2, 2: 1}
 
@@ -156,9 +157,10 @@ async def test_delayed_retries_obey_rate_limit_and_bounded_streaming():
     )
     async with asyncio.timeout(2):
         results = []
-        async for result in engine.iter_results(range(4)):
-            results.append(result)
-            await asyncio.sleep(0.025)
+        async with engine.iter_results(range(4)) as stream:
+            async for result in stream:
+                results.append(result)
+                await asyncio.sleep(0.025)
     assert all(result.success for result in results)
     assert {result.result for result in results} == set(range(4))
     assert attempts == Counter({value: 2 for value in range(4)})
