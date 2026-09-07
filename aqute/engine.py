@@ -373,7 +373,8 @@ class Aqute(Generic[TData, TResult]):
     def _helper_queues(self) -> Generator[None]:
         if self.aiotask_of_run_load is not None or self._added_tasks_count:
             raise AquteError(
-                "Helper runs require no active run or pending manual tasks"
+                "Use a fresh engine, or complete and stop the existing run "
+                "before starting a helper"
             )
         original_result_queue = self.result_queue
         if self._owns_result_queue:
