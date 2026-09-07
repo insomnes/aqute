@@ -7,14 +7,15 @@ from collections import Counter
 import httpx
 import pytest
 
-from examples import http_client, service_shutdown, streaming
+from examples import http_client, retry_progress, service_shutdown, streaming
 
 
 @pytest.mark.parametrize(
     ("module", "expected"),
     [
         ("quickstart", "[0, 2, 4, 6, 8, 10, 12, 14, 16, 18]"),
-        ("streaming", "[0, 2, 4, 6, 8, 10, 12, 14]"),
+        ("streaming", "3 consumed"),
+        ("retry_progress", "[0, 2, 4, 6, 8, 10, 12, 14]"),
         ("http_client", "2 pages"),
     ],
 )
@@ -30,8 +31,25 @@ def test_example_entrypoint(module, expected):
 
 
 @pytest.mark.asyncio
-async def test_streaming_example():
-    assert sorted(await streaming.main()) == [value * 2 for value in range(8)]
+async def test_streaming_example(caplog):
+    """The example must emit three doubled values and close its source on exit."""
+    caplog.set_level(logging.INFO, logger="examples.streaming")
+    assert await streaming.main() == 3
+    messages = [
+        message
+        for name, _level, message in caplog.record_tuples
+        if name == "examples.streaming"
+    ]
+    assert messages.count("Source closed") == 1
+    results = [message for message in messages if message != "Source closed"]
+    assert len(results) == len(set(results)) == 3
+    assert set(results) <= {f"Result for {value}: {value * 2}" for value in range(100)}
+
+
+@pytest.mark.asyncio
+async def test_retry_progress_example():
+    """The advanced recipe must still return all eight values after retrying."""
+    assert sorted(await retry_progress.main()) == [value * 2 for value in range(8)]
 
 
 @pytest.mark.asyncio

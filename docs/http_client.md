@@ -35,7 +35,7 @@ uses HTTPX's five-second timeout setting.
 `retry_count=2` permits at most three attempts per URL. Only
 `httpx.TransportError` exceptions are selected for retries. HTTP status errors,
 including 429 and 503, are terminal in this example. The existing
-[retry callback](streaming.md) adds capped exponential backoff with jitter.
+[retry callback](retry_progress.md) adds capped exponential backoff with jitter.
 Applications must select retryable errors and operations for their own service.
 
 Aqute yields handler failures as terminal task error values. This example calls

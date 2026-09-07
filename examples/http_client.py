@@ -8,7 +8,7 @@ import httpx
 
 from aqute import Aqute
 from aqute.ratelimiter import TokenBucketRateLimiter
-from examples.streaming import retry_delay
+from examples.retry_progress import retry_delay
 
 logger = logging.getLogger(__name__)
 
