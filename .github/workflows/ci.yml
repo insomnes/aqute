@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - maintenance/0.9.x
   pull_request:
 
 jobs:
@@ -11,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        python-version: ["3.9", "3.10"]
         command:
         - "ruff check ."
         - "ruff format --check ."
@@ -23,11 +25,11 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: 3.9
+        python-version: ${{ matrix.python-version }}
 
     - name: Install Poetry
       run: |
-        curl -sSL https://install.python-poetry.org | python3 -
+        python -m pip install poetry==1.8.3
 
     - name: Install dependencies
       run: make install
@@ -36,4 +38,3 @@ jobs:
       run: |
         source $(poetry env info --path)/bin/activate
         ${{ matrix.command }}
-
