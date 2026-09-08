@@ -1,5 +1,10 @@
 # Usage
 
+This page covers the development API for Python 3.11+. Follow the
+[development installation instructions](index.md#development-installation).
+For PyPI 0.9.3, use its versioned
+[README](https://github.com/insomnes/aqute/blob/0.9.3/README.md#quickstart).
+
 ## Task results
 
 Call `AquteTask.unwrap()` on terminal results obtained from `Aqute` through
@@ -363,10 +368,11 @@ ordered list return type.
 
 ## For coding agents
 
-For application code, install with `pip install aqute` and import
-`Aqute` from `aqute`. The [canonical HTTP recipe](http_client.md)
-also requires `httpx`; the checkout's dev group includes it. Adapt that runnable
-source instead of reconstructing the API from older examples.
+For application code, [install the development source](index.md#development-installation)
+with Python 3.11+ and import `Aqute` from `aqute`. The
+[canonical HTTP recipe](http_client.md) also requires `httpx`; the checkout's dev
+group includes it. Adapt that runnable source instead of reconstructing the API
+from older examples.
 
 | Application need | API |
 | --- | --- |
