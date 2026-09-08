@@ -19,6 +19,13 @@ For real requests, call `await fetch_pages(urls)` without a transport. Install
 `aqute` and `httpx` in your application environment. HTTPX is a development
 dependency in this checkout; it is not an Aqute runtime dependency.
 
+The source imports `retry_delay` from the checkout's `examples.retry_progress`,
+which is not installed with `aqute`. To adapt it outside the checkout, copy the
+callback and its `from random import uniform` import from the
+[retry recipe](retry_progress.md), or provide your own callback. Replace the
+`examples.retry_progress` import with your application's import, or remove it if
+you define the callback in the same file.
+
 ## Runnable source
 
 ```python
