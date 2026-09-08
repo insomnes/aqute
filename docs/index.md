@@ -12,22 +12,20 @@ Typical uses are API ingestion and backfills, infrastructure automation, and
 independent remote inference or evaluation requests. Your application owns retry
 safety, checkpoints, token budgets, and provider policy.
 
-## Development installation
+## Installation
 
-These pages and examples cover the unreleased development API on `main`.
-With Python 3.11+ and Git installed, install the development source:
+These pages and examples cover the 0.10.0 API. With Python 3.11+, install Aqute:
 
 ```bash
-python -m pip install "aqute @ git+https://github.com/insomnes/aqute.git@main"
+python -m pip install aqute==0.10.0
 ```
 
-For `pip install aqute`, follow the versioned
+For the 0.9.x maintenance API, use the
 [0.9.3 quickstart](https://github.com/insomnes/aqute/blob/0.9.3/README.md#quickstart).
-That PyPI release uses an older API.
 
 ## Quickstart
 
-After [installing the development source](#development-installation), run this
+After [installing Aqute](#installation), run this
 complete example. It returns an ordered list of doubled values and propagates
 handler errors.
 
