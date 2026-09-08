@@ -32,7 +32,8 @@ result.
 
 See [usage](usage.md) for buffering, cleanup, retry, timeout, and compatibility
 contracts. The executable examples cover [streaming](streaming.md),
-[bounded HTTP processing](http_client.md), and [service shutdown](service_shutdown.md).
+[bounded HTTP processing](http_client.md), [manual result draining](manual_drain.md),
+and [service shutdown](service_shutdown.md).
 
 ## Bounded HTTP processing
 
@@ -65,11 +66,11 @@ For infrastructure changes, retries can repeat side effects; the application mus
 decide which operations are safe to repeat. For remote inference, Aqute schedules
 handler attempts; model execution and provider-specific policy remain outside it.
 
-`process_all()` and `iter_results()` use finite input and result buffering by
-default, with each queue sized to `workers_count`. Manual processing keeps
-unlimited defaults. Queue limits bound items, not bytes; `process_all()` retains
-the complete result list. See [buffering](usage.md#buffering) for overrides, the
-item bound, and migration.
+`process_all()`, `iter_results()`, and manual processing use finite input and result
+buffering by default, with each queue sized to `workers_count`. Manual runs must
+consume results concurrently or [choose unlimited queues explicitly](usage.md#queue-default-migration).
+Queue limits bound items, not bytes; `process_all()` retains the complete result
+list. See [buffering](usage.md#buffering) for overrides, the item bound, and migration.
 
 The `iter_results()` context awaits producer and worker cleanup, including after
 early exit. See [streaming and cleanup](usage.md#streaming-and-cleanup) for the
