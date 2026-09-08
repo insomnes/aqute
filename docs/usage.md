@@ -306,8 +306,8 @@ snapshots.
 
 ## Migration from 0.9.2
 
-The next breaking release removes the old method names without compatibility
-wrappers. Update calls when upgrading from 0.9.2:
+The old method names are removed without compatibility wrappers. Update calls
+when upgrading from 0.9.2:
 
 | 0.9.2 call | Replacement |
 | --- | --- |
