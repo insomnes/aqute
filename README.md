@@ -229,7 +229,7 @@ You can also add RateLimiter instance to Aqute for rate limiting:
     assert len(result) == len(input_data)
 ```
 
-There are three available `RateLimiter` implementations:
+There are four available `RateLimiter` implementations:
 - `TokenBucketRateLimiter`: steady rate by default, burstable with `allow_burst` option;
 - `SlidingRateLimiter`: next call will be available after enough time from the oldest one;
 - `PerWorkerRateLimiter`: enforces separate rate limits for each unique worker with separate `TokenBucketRateLimiter` instances;
