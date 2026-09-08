@@ -14,6 +14,7 @@ nav:
   - Streaming: streaming.md
   - Retry and progress: retry_progress.md
   - HTTP client: http_client.md
+  - Manual result draining: manual_drain.md
   - Service shutdown: service_shutdown.md
   - Development: development.md
 markdown_extensions:

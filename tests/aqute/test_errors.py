@@ -70,6 +70,8 @@ async def test_too_many_failed_tasks_error(retry_count: int):
         handle_coro=failing_handler,
         retry_count=retry_count,
         total_failed_tasks_limit=2,
+        input_task_queue_size=0,
+        result_queue=asyncio.Queue(0),
     )
     for i in range(1, 6):
         await aqute.add_task(i)
@@ -132,6 +134,8 @@ async def test_not_enough_failed_tasks_for_error(retry_count: int):
         handle_coro=failing_handler,
         retry_count=retry_count,
         total_failed_tasks_limit=3,
+        input_task_queue_size=0,
+        result_queue=asyncio.Queue(0),
     )
     for i in range(1, 6):
         await aqute.add_task(i)

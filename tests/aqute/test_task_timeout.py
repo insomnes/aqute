@@ -76,6 +76,8 @@ async def test_timeout(case: TaskTimeoutTestCase):
 
     aqute = Aqute(
         handle_coro=get_retriable_handler(),
+        input_task_queue_size=0,
+        result_queue=asyncio.Queue(0),
         workers_count=2,
         task_timeout_seconds=case.task_timeout,
         errors_to_not_retry=errors_to_not_retry,

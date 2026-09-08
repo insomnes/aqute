@@ -60,23 +60,18 @@ consuming input. Use the manual API for externally managed producers and consume
 
 ## Buffering
 
-`process_all()` and `iter_results()` use finite buffering by default. With `W`
-workers, omitted limits give each queue capacity `W`: pending input, terminal
-results, and the internal worker-result queue. Slow result consumption blocks
-further processing and admission.
+All Aqute runs use finite buffering by default, including the manual API. With
+`W` workers, omitted limits or `None` give each queue capacity `W`: pending input,
+terminal results, and the internal worker-result queue. Slow result consumption
+blocks further processing and admission.
 
-| Constructor option | Helper runs | Manual runs |
-| --- | --- | --- |
-| Omitted `input_task_queue_size`, or `None` | Capacity `W` | Unlimited |
-| `input_task_queue_size=I`, with `I > 0` | Capacity `I` | Capacity `I` |
-| `input_task_queue_size=0` | Unlimited | Unlimited |
-| Omitted `result_queue`, or `None` | Capacity `W` per result queue | Unlimited |
-| `result_queue=asyncio.Queue(R)` | Supplied queue and relay use `R` | Supplied queue and relay use `R` |
-
-A supplied result queue keeps its identity and capacity, including explicit
-`asyncio.Queue(0)` for unlimited results. Aqute does not resize or replace it.
-After helper cleanup, manual runs keep their original queue limits and already
-published results remain available through `get_result()` or `drain_results()`.
+Set `input_task_queue_size=I` to override the input capacity. A positive value is
+a finite item limit; `input_task_queue_size=0` is unlimited.
+A supplied `result_queue=asyncio.Queue(R)` sets both result queues to capacity `R`.
+It keeps its identity and capacity, including `asyncio.Queue(0)` for unlimited
+results. Aqute does not resize or replace it. Helper and manual runs use the same
+limits, including after reuse. Published results remain available after cleanup
+through `get_result()` or `drain_results()`.
 
 With positive input capacity `I`, result capacity `R`, and one producer, Aqute
 retains at most `I + 2*R + W + 3` input/result items, including pending admission,
@@ -88,10 +83,15 @@ source or caller and the growing list returned by `process_all()`. A queue size 
 zero is unlimited. Multiple independent producer calls can each hold an item
 while waiting for admission; the formula above assumes one producer.
 
-This pre-1.0 change replaces the constructor default
-`input_task_queue_size: int = 0` with `input_task_queue_size: int | None = None`.
-Existing positive capacities still override the defaults. To preserve the old
-unlimited helper behavior, set both limits explicitly:
+### Queue-default migration
+
+This is a pre-1.0 behavior break for manual runs. Omitted limits now use capacity
+`workers_count`, just like helper runs. Existing positive capacities and explicit
+zero limits keep their meaning. Manual runs using the defaults must consume
+results concurrently with submission and processing.
+
+To preserve pre-submit-then-run or other unlimited buffering, set both limits
+explicitly:
 
 ```python
 engine = Aqute(
@@ -102,8 +102,16 @@ engine = Aqute(
 )
 ```
 
-Manual pre-submit-then-run and run-then-drain flows with omitted limits need no
-migration. Deprecated helper names inherit the new helper defaults.
+Pre-submit-then-run needs both queues unlimited when all inputs are submitted
+before starting and results are drained after completion. A full input queue
+before `start()` now raises `AquteError` from `add_task()` instead of waiting
+indefinitely. Start processing first or opt into unlimited input explicitly.
+
+Run-then-drain starts processing before submission and needs only
+`result_queue=asyncio.Queue(0)`; the input queue can keep its default capacity.
+See the [manual drain example](manual_drain.md). With finite result queues and no
+concurrent consumer, `add_task()` or `finish()` can wait indefinitely. Aqute does
+not detect this arrangement. Deprecated methods use the same queue defaults.
 
 Helpers now reject pending manual tasks, so preloading with `add_task()` before
 `process_all()` or `iter_results()` raises `AquteError`. Follow
@@ -189,16 +197,21 @@ group. See [HTTPX's async client guide](https://www.python-httpx.org/async/).
 ## Manual processing and shutdown
 
 Use the Aqute async context manager, or `start()` followed by `stop()`. Start workers
-before filling a bounded input queue. Submit with `await add_task(data)` and
-consume with `await get_result()`. Custom IDs use `task_id`; omitted IDs are
-generated. `drain_results()` removes currently available results without waiting.
+before filling a bounded input queue; otherwise `add_task()` raises `AquteError`
+when the input queue is already full. With default limits, submit with
+`await add_task(data)` and consume results concurrently with `await get_result()`.
+Custom IDs use `task_id`; omitted IDs are generated. `drain_results()` removes currently available results without waiting.
 `get_result()` raises `AquteError` after normal completion when no results remain.
 
 `finish_submitting()` signals that input submission is complete. `await finish()`
 also sends that signal and waits for processing. Stop producers before either
 call. These methods do not reject later submissions while the run still has work.
 `await run()` starts processing and finishes work submitted before start.
-After `run()` or `finish()` completes, await `stop()` before starting a helper.
+With finite result queues, keep the consumer running while awaiting completion.
+For pre-submit-then-run, explicitly set both queues unlimited. For run-then-drain,
+set only the result queue unlimited; see [queue-default migration](#queue-default-migration)
+and the [manual drain example](manual_drain.md). After `run()` or `finish()`
+completes, await `stop()` before starting a helper.
 
 The executable [service shutdown example](service_shutdown.md) shows:
 
@@ -323,8 +336,8 @@ source instead of reconstructing the API from older examples.
   after completion, early exit, or failure. Keep the external client open around
   that context. Aqute closes started generator sources; callers own other source
   resources and must close them explicitly.
-- Leave queue limits omitted for finite helper defaults, with each queue sized to
-  `workers_count`. Use positive capacities to override them; zero is unlimited.
+- Leave queue limits omitted for finite defaults in all APIs, with each queue
+  sized to `workers_count`. Use positive capacities to override them; zero is unlimited.
   These are item limits. Payload bytes, caller-retained data, and the complete
   list returned by `process_all()` are outside the bound. See [buffering](#buffering).
 - Handle each terminal task explicitly. `task.unwrap()` returns the successful

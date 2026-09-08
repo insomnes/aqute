@@ -17,6 +17,7 @@ from examples import http_client, retry_progress, service_shutdown, streaming
         ("streaming", "3 consumed"),
         ("retry_progress", "[0, 2, 4, 6, 8, 10, 12, 14]"),
         ("http_client", "2 pages"),
+        ("manual_drain", str([(f"job-{value}", value * 2) for value in range(10)])),
     ],
 )
 def test_example_entrypoint(module, expected):

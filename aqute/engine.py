@@ -59,8 +59,8 @@ class Aqute(Generic[TData, TResult]):
                 Defaults to None.
             result_queue (optional): Caller-owned queue for task results. Its
                 capacity also limits the internal result relay; 0 is unlimited.
-                If omitted, helpers use workers_count items per result queue;
-                manual runs use an unlimited queue.
+                If omitted, each result queue has capacity workers_count
+                for helper and manual runs alike.
             retry_count (optional): Number of task retry attempts upon
                 failure. Defaults to 0.
             retry_delay (optional): Map the 1-based failed-attempt number and
@@ -74,9 +74,9 @@ class Aqute(Generic[TData, TResult]):
             start_timeout_seconds (optional): Wait time before failing after start
                 if no tasks were added. Defaults to None.
             input_task_queue_size (optional): Maximum pending input items.
-                None (the default) uses workers_count for helper runs and no
-                limit for manual runs. Positive values set an explicit capacity;
-                0 is unlimited for both APIs.
+                None (the default) uses workers_count for all runs. Positive
+                values set an explicit capacity; 0 is unlimited. Start processing
+                before filling a bounded queue and consume results concurrently.
             use_priority_queue (optional): Use priority queue for tasks.
                 Defaults to False.
             task_timeout_seconds (optional): Timeout for task handler coroutine wait.
@@ -86,13 +86,11 @@ class Aqute(Generic[TData, TResult]):
             total_failed_tasks_limit (optional): Maximum failed tasks count before
                 stopping processing. Defaults to None.
         """
-        self._owns_result_queue = result_queue is None
         self.result_queue: AquteTaskQueueType[TData, TResult] = (
-            asyncio.Queue() if result_queue is None else result_queue
+            asyncio.Queue(workers_count) if result_queue is None else result_queue
         )
 
         self._task_tries_count = max(retry_count, 0) + 1
-        self._input_task_queue_size = input_task_queue_size
 
         self._rate_limiter = rate_limiter
 
@@ -108,7 +106,11 @@ class Aqute(Generic[TData, TResult]):
             handle_coro=self._handle_coro,
             workers_count=self._workers_count,
             rate_limiter=self._rate_limiter,
-            input_task_queue_size=max(self._input_task_queue_size or 0, 0),
+            input_task_queue_size=(
+                workers_count
+                if input_task_queue_size is None
+                else max(input_task_queue_size, 0)
+            ),
             use_priority_queue=self._use_priority_queue,
             task_timeout_seconds=self._task_timeout_seconds,
             output_task_queue_size=self.result_queue.maxsize,
@@ -225,6 +227,11 @@ class Aqute(Generic[TData, TResult]):
 
         Returns:
             The unique task_id associated with the added task.
+
+        Raises:
+            AquteError: If the input queue is full before start(). Start processing
+                or set input_task_queue_size=0 for unlimited pre-submission.
+                Also raised when the load has completed or was cancelled.
         """
         task_id = task_id or str(self._added_tasks_count)
 
@@ -240,6 +247,11 @@ class Aqute(Generic[TData, TResult]):
                 raise AquteError("Load was cancelled; call stop first")
             await load
             raise AquteError("Cannot add a task after load completion; call stop first")
+        if load is None and self._foreman.in_queue.full():
+            raise AquteError(
+                "Input queue is full before start(); call start() first "
+                "or set input_task_queue_size=0 for unlimited pre-submission"
+            )
         if load is None or not self._foreman.in_queue.full():
             await self._foreman.add_task(task)
         else:
@@ -301,7 +313,7 @@ class Aqute(Generic[TData, TResult]):
         These are item bounds, not byte bounds; source and caller retention are
         excluded. Explicit input_task_queue_size=0 or result_queue=Queue(0)
         disables the corresponding limit. Supplied result queues retain their
-        identity and capacity. Manual runs keep their original queue limits.
+        identity and capacity. Manual runs use the same queue limits.
 
         Args:
             tasks_data: Iterable containing data for each task.
@@ -376,29 +388,12 @@ class Aqute(Generic[TData, TResult]):
                 "Use a fresh engine, or complete and stop the existing run "
                 "before starting a helper"
             )
-        original_result_queue = self.result_queue
-        if not original_result_queue.empty():
+        if not self.result_queue.empty():
             raise AquteError(
                 "Drain retained results or use a fresh engine "
                 "before starting a helper run"
             )
-        if self._owns_result_queue:
-            self.result_queue = asyncio.Queue(self._workers_count)
-        self._foreman.reset(
-            input_task_queue_size=(
-                self._workers_count
-                if self._input_task_queue_size is None
-                else max(self._input_task_queue_size, 0)
-            ),
-            output_task_queue_size=self.result_queue.maxsize,
-        )
-        try:
-            yield
-        finally:
-            if self._owns_result_queue:
-                while not self.result_queue.empty():
-                    original_result_queue.put_nowait(self.result_queue.get_nowait())
-                self.result_queue = original_result_queue
+        yield
 
     async def _produce_tasks(
         self,

@@ -19,7 +19,7 @@ async def stringify(value: int) -> str:
 async def test_canonical_methods_preserve_types_without_deprecation_warnings():
     with warnings.catch_warnings():
         warnings.simplefilter("error", DeprecationWarning)
-        async with Aqute(stringify, 1) as engine:
+        async with Aqute(stringify, 1, result_queue=asyncio.Queue(0)) as engine:
             assert_type(engine, Aqute[int, str])
             await engine.add_task(1)
             await engine.add_task(2)
@@ -51,7 +51,7 @@ async def test_canonical_methods_preserve_types_without_deprecation_warnings():
 
 @pytest.mark.asyncio
 async def test_legacy_lifecycle_wrappers_warn_at_the_caller_and_keep_results():
-    async with Aqute(stringify, 1) as engine:
+    async with Aqute(stringify, 1, result_queue=asyncio.Queue(0)) as engine:
         await engine.add_task(1)
         await engine.add_task(2)
         with pytest.warns(DeprecationWarning, match="finish_submitting") as signals:

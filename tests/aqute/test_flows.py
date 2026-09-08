@@ -59,7 +59,12 @@ def check_susccess_and_fails(
 
 @pytest.mark.asyncio
 async def test_most_verbose_way():
-    aqute = Aqute(workers_count=2, handle_coro=non_failing_handler)
+    aqute = Aqute(
+        workers_count=2,
+        handle_coro=non_failing_handler,
+        input_task_queue_size=0,
+        result_queue=asyncio.Queue(0),
+    )
     await add_tasks(aqute, 10)
     aqute.finish_submitting()
     await aqute.start()
@@ -70,7 +75,9 @@ async def test_most_verbose_way():
 
 @pytest.mark.asyncio
 async def test_simple_way():
-    aqute = Aqute(workers_count=2, handle_coro=non_failing_handler)
+    aqute = Aqute(
+        workers_count=2, handle_coro=non_failing_handler, result_queue=asyncio.Queue(0)
+    )
     async with aqute:
         await add_tasks(aqute, 10)
         await aqute.finish()
@@ -80,7 +87,12 @@ async def test_simple_way():
 
 @pytest.mark.asyncio
 async def test_simple_way_add_before():
-    aqute = Aqute(workers_count=2, handle_coro=non_failing_handler)
+    aqute = Aqute(
+        workers_count=2,
+        handle_coro=non_failing_handler,
+        input_task_queue_size=0,
+        result_queue=asyncio.Queue(0),
+    )
     await add_tasks(aqute, 10)
     async with aqute:
         await aqute.finish()
@@ -90,7 +102,12 @@ async def test_simple_way_add_before():
 
 @pytest.mark.asyncio
 async def test_simple_verbose():
-    aqute = Aqute(workers_count=2, handle_coro=non_failing_handler)
+    aqute = Aqute(
+        workers_count=2,
+        handle_coro=non_failing_handler,
+        input_task_queue_size=0,
+        result_queue=asyncio.Queue(0),
+    )
     await add_tasks(aqute, 10)
     await aqute.run()
     await aqute.stop()
@@ -100,7 +117,9 @@ async def test_simple_verbose():
 
 @pytest.mark.asyncio
 async def test_start_without_await():
-    aqute = Aqute(workers_count=2, handle_coro=non_failing_handler)
+    aqute = Aqute(
+        workers_count=2, handle_coro=non_failing_handler, result_queue=asyncio.Queue(0)
+    )
     aqute.start()
     await add_tasks(aqute, 10)
     await aqute.finish()
@@ -111,7 +130,9 @@ async def test_start_without_await():
 
 @pytest.mark.asyncio
 async def test_failed_tasks():
-    aqute = Aqute(workers_count=2, handle_coro=failing_handler)
+    aqute = Aqute(
+        workers_count=2, handle_coro=failing_handler, result_queue=asyncio.Queue(0)
+    )
     async with aqute:
         await add_tasks(aqute, 10)
         await aqute.finish()
@@ -125,6 +146,7 @@ async def test_total_failed_tasks_limit_do_not_intervene():
         workers_count=2,
         handle_coro=failing_handler,
         total_failed_tasks_limit=2,
+        result_queue=asyncio.Queue(0),
     )
     async with aqute:
         await add_tasks(aqute, 10)

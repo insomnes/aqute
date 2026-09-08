@@ -353,6 +353,7 @@ async def test_retry(case: RetryTestCase):
     aqute = Aqute(
         workers_count=2,
         handle_coro=get_specific_failing_handler(),
+        result_queue=asyncio.Queue(0),
         retry_count=case.retry_count,
         specific_errors_to_retry=case.specific_errors_to_retry,
         errors_to_not_retry=case.errors_to_not_retry,

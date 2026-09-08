@@ -153,8 +153,8 @@ async def test_explicit_unlimited_result_queue_keeps_all_completed_results():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("exit_mode", ["complete", "break", "error", "cancel"])
-async def test_helper_exit_retains_results_and_restores_manual_defaults(exit_mode):
-    """Every exit preserves retained results and later manual preload/drain."""
+async def test_helper_exit_retains_results_and_keeps_bounded_manual_defaults(exit_mode):
+    """Every exit preserves retained results and bounded defaults on manual reuse."""
     engine = Aqute(echo, 2)
     exhausted = asyncio.Event()
 
@@ -187,13 +187,16 @@ async def test_helper_exit_retains_results_and_restores_manual_defaults(exit_mod
         assert Counter([*consumed, *[task.result for task in retained]]) == Counter(
             range(3)
         )
-        for value in range(40):
-            await engine.add_task(value)
-        await engine.run()
-        assert Counter(task.result for task in engine.drain_results()) == Counter(
-            range(40)
-        )
-        await engine.stop()
+        assert engine.result_queue.maxsize == 2
+        await engine.add_task(10)
+        await engine.add_task(11)
+        with pytest.raises(AquteError, match=r"start\(\)"):
+            await engine.add_task(12)
+        assert engine.counters.pending == 2
+        async with engine:
+            manual = [await engine.get_result() for _ in range(2)]
+            await engine.finish()
+        assert Counter(task.result for task in manual) == Counter([10, 11])
 
 
 @pytest.mark.asyncio
