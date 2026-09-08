@@ -33,6 +33,8 @@ Release CI checks the candidate, sets its version from the published GitHub rele
 tag (optional `v` prefix), builds with `uv_build`, and publishes through GitHub's
 trusted PyPI identity. See [LICENSE](https://github.com/insomnes/aqute/blob/main/LICENSE).
 
+The site uses [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/)
+with system fonts. Its dependencies are included in the locked development environment.
 Run commands from the repository root. `make docs` builds the site in `site/`;
 `uv run --locked mkdocs serve` provides a local preview at
 `http://127.0.0.1:8000/aqute/`. The documentation includes the actual files in

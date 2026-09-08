@@ -105,6 +105,12 @@ engine = Aqute(
 Manual pre-submit-then-run and run-then-drain flows with omitted limits need no
 migration. Deprecated helper names inherit the new helper defaults.
 
+Helpers now reject pending manual tasks, so preloading with `add_task()` before
+`process_all()` or `iter_results()` raises `AquteError`. Follow
+[manual processing and shutdown](#manual-processing-and-shutdown) to finish the
+work while draining results, then stop the engine before using a helper.
+Alternatively, use a separate fresh engine for the helper.
+
 ## Concurrency, rate, and priority
 
 `workers_count` limits occupied workers. It does not specify requests per second.
@@ -149,6 +155,8 @@ worker. A worker retains its task through retries.
 
 Handler exceptions become `AquteTask.error` values. `retry_count` specifies extra
 attempts; its default is zero. `specific_errors_to_retry` selects exception types.
+When omitted, it defaults to `None`: every caught handler error is eligible while
+the retry budget remains.
 `errors_to_not_retry` excludes types and takes precedence when both filters match.
 
 `retry_delay(failed_attempt, error)` optionally returns finite, nonnegative seconds.
@@ -301,7 +309,7 @@ ordered list return type.
 ## For coding agents
 
 For application code, install with `pip install aqute` and import
-`Aqute` from `aqute`. The [canonical HTTP recipe](http_client.md#runnable-source)
+`Aqute` from `aqute`. The [canonical HTTP recipe](http_client.md)
 also requires `httpx`; the checkout's dev group includes it. Adapt that runnable
 source instead of reconstructing the API from older examples.
 

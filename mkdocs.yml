@@ -3,7 +3,11 @@ site_url: https://insomnes.github.io/aqute/
 site_description: Async coroutine processing with bounded queues, retries, and rate limits.
 repo_url: https://github.com/insomnes/aqute
 edit_uri: edit/main/docs/
-theme: mkdocs
+theme:
+  name: material
+  font: false
+  features:
+    - content.action.edit
 nav:
   - Quickstart: index.md
   - Usage: usage.md
@@ -14,7 +18,8 @@ nav:
   - Development: development.md
 markdown_extensions:
   - tables
-  - fenced_code
+  - pymdownx.highlight
+  - pymdownx.superfences
   - pymdownx.snippets:
       base_path: ["."]
       check_paths: true
