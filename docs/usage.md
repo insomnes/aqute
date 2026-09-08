@@ -129,6 +129,45 @@ Available implementations are in `aqute.ratelimiter`:
 - `SlidingRateLimiter` limits calls within a moving time window.
 - `PerWorkerRateLimiter` applies a separate token bucket to each worker.
 - `RandomizedIntervalRateLimiter` adds bounded random delays after rolling-cap waits.
+- `PausableRateLimiter` wraps any limiter with a shared monotonic pause.
+
+To pause attempt admission after service throttling, share one wrapper:
+
+```python
+from aqute.ratelimiter import PausableRateLimiter, TokenBucketRateLimiter
+
+limiter = PausableRateLimiter(TokenBucketRateLimiter(max_rate=10))
+engine = Aqute(handle, workers_count=4, rate_limiter=limiter)
+# Application code can call this after a throttle response:
+limiter.pause_for(2.0)
+```
+
+`pause_for(seconds)` extends the pause from `time.monotonic()` now.
+`pause_until(deadline)` takes an absolute deadline from that same clock.
+Both accept finite, nonnegative values and raise `ValueError` otherwise.
+The later deadline wins; a shorter pause cannot shorten the current one.
+Zero seconds and past deadlines add no wait. The read-only `paused_until`
+property starts at zero and retains the latest deadline after it expires.
+
+Use the wrapper on one event loop. Each `acquire()` checks the deadline in a loop
+before and after acquiring the inner limiter, including extensions set while
+either wait is active. Cancellation propagates. Requests already admitted are
+not interrupted. Inner grants delayed by a pause can resume together; the wrapper
+does not reacquire their permits or guarantee request spacing after that delay.
+
+The pause is outside `task_timeout_seconds`. A throttled attempt still consumes
+`retry_count`; select retryable errors and allow enough retries in the application.
+SDK-internal retries inside the handler multiply requests without acquiring the
+limiter again. The [HTTP example source](http_client.md#runnable-source) parses
+`Retry-After` seconds or HTTP dates in application code and applies the shared
+pause. Missing or invalid headers use a one-second fallback; past dates use zero.
+
+Its offline entry point also compares eight workers processing forty URLs during
+one 300 ms throttle window, with `Retry-After: 1` and a 100-attempt/second limiter.
+The transport returns each response immediately, before the next admission.
+It logs throttled-request counts, retries, and elapsed time with and without the
+shared pause. Real requests already in flight can still return 429 after a pause;
+this controlled comparison is not a bound on their count or a throughput claim.
 
 `RandomizedIntervalRateLimiter(N, T)` grants at most `N` acquisitions in each
 rolling `T` seconds. Each acquisition waits for quota, then for its full additional
@@ -189,7 +228,8 @@ with `AquteTooManyTasksFailedError` when collected terminal failures reach the l
 Source exceptions propagate after helper cleanup.
 
 The [HTTP example](http_client.md) uses one shared HTTPX client and retries
-transport errors. HTTP status failures propagate to its caller. Its executable
+transport errors and HTTP 429 responses. Other HTTP status failures propagate
+to its caller. Its executable
 entry point uses an offline transport; applications call `fetch_pages(urls)` for
 real requests. HTTPX is required only for this example and is included in the dev
 group. See [HTTPX's async client guide](https://www.python-httpx.org/async/).

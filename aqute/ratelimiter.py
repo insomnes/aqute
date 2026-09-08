@@ -3,7 +3,7 @@ import logging
 import math
 import random
 from collections import defaultdict, deque
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Protocol
 
 from aqute.task import AquteTask
@@ -14,6 +14,59 @@ logger = logging.getLogger("aqute.ratelimiter")
 class RateLimiter(Protocol):
     async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
         """Should block inside this method if needed"""
+
+
+class PausableRateLimiter:
+    """Add a shared monotonic pause to any RateLimiter on the same event loop.
+
+    Pauses delay attempt admission, including retries, outside
+    task_timeout_seconds. A throttled attempt still consumes retry_count.
+    SDK-internal retries inside the handler multiply attempts without acquiring
+    this limiter again. Requests already admitted are not interrupted.
+
+    The inner limiter grants once per acquire(). A pause imposed during that
+    grant can delay its delivery; delayed grants may resume together.
+    """
+
+    def __init__(self, inner: RateLimiter) -> None:
+        self._inner = inner
+        self._paused_until = 0.0
+
+    @property
+    def paused_until(self) -> float:
+        """Latest monotonic deadline, initially zero; retained after expiry."""
+        return self._paused_until
+
+    def pause_for(self, seconds: float) -> None:
+        """Extend the pause by finite, nonnegative seconds from now.
+
+        A shorter pause never reduces the existing deadline. Invalid values
+        raise ValueError without changing the pause.
+        """
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError("seconds must be finite and nonnegative")
+        self.pause_until(monotonic() + seconds)
+
+    def pause_until(self, deadline: float) -> None:
+        """Extend the pause to a time.monotonic() deadline.
+
+        Past deadlines do not delay acquisition. A shorter deadline never
+        reduces the current pause. Nonfinite or negative values raise ValueError.
+        """
+        if not math.isfinite(deadline) or deadline < 0:
+            raise ValueError("deadline must be finite and nonnegative")
+        self._paused_until = max(self._paused_until, deadline)
+
+    async def _wait_for_pause(self) -> None:
+        # Sleep until the deadline, then check for extensions; this is not polling.
+        while (remaining := self._paused_until - monotonic()) > 0:  # noqa: ASYNC110
+            await asyncio.sleep(remaining)
+
+    async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
+        """Wait before and after the inner grant; propagate cancellation."""
+        await self._wait_for_pause()
+        await self._inner.acquire(name=name, task=task)
+        await self._wait_for_pause()
 
 
 class TokenBucketRateLimiter:
