@@ -16,9 +16,11 @@ for a short comparison with plain asyncio and aiometer.
 
 ## Quickstart
 
-```bash
-pip install aqute
-```
+This README and the linked documentation cover the unreleased development API
+for Python 3.11+. Follow the
+[development installation instructions](https://insomnes.github.io/aqute/#development-installation)
+before running these examples. For `pip install aqute`, use the versioned
+[0.9.3 quickstart](https://github.com/insomnes/aqute/blob/0.9.3/README.md#quickstart).
 
 Pass your async handler to `Aqute`. Inside an async function, collect its results:
 
@@ -57,8 +59,9 @@ From a development checkout, run it without network access:
 uv run --locked python -m examples.http_client
 ```
 
-The example completes a transport retry, then handles a terminal HTTP error in a
-separate run. Its [source](https://github.com/insomnes/aqute/blob/main/examples/http_client.py)
+The example first compares throttling with and without a shared pause. It then
+completes a transport retry and handles a terminal HTTP error in a separate run.
+Its [source](https://github.com/insomnes/aqute/blob/main/examples/http_client.py)
 also provides an explicit path for real requests. The HTTP page includes the
 source and explains buffering overrides, retry safety, and its fail-fast policy.
 

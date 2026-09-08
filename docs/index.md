@@ -12,10 +12,24 @@ Typical uses are API ingestion and backfills, infrastructure automation, and
 independent remote inference or evaluation requests. Your application owns retry
 safety, checkpoints, token budgets, and provider policy.
 
+## Development installation
+
+These pages and examples cover the unreleased development API on `main`.
+With Python 3.11+ and Git installed, install the development source:
+
+```bash
+python -m pip install "aqute @ git+https://github.com/insomnes/aqute.git@main"
+```
+
+For `pip install aqute`, follow the versioned
+[0.9.3 quickstart](https://github.com/insomnes/aqute/blob/0.9.3/README.md#quickstart).
+That PyPI release uses an older API.
+
 ## Quickstart
 
-Install the library with `pip install aqute`. This complete example returns an
-ordered list of doubled values and propagates handler errors.
+After [installing the development source](#development-installation), run this
+complete example. It returns an ordered list of doubled values and propagates
+handler errors.
 
 ```python
 --8<-- "examples/quickstart.py"
@@ -45,10 +59,11 @@ The page includes the runnable source and explains its fail-fast error policy.
 uv run --locked python -m examples.http_client
 ```
 
-This checkout command runs offline. It completes a transport retry, logs two
-pages, and handles a terminal HTTP error in a separate run. Each run uses a fresh
-engine and a managed stream with finite queue defaults. It returns a count instead
-of retaining every body. Queues bound items, not payload bytes or application data.
+This checkout command runs offline. It first compares throttling with and without
+a shared pause. It then completes a transport retry, logs two pages, and handles a
+terminal HTTP error in a separate run. Each run uses a fresh engine and a managed
+stream with finite queue defaults. `fetch_pages()` returns a count instead of
+retaining every body. Queues bound items, not payload bytes or application data.
 The same source provides an explicit callable path for real requests.
 
 See [For coding agents](usage.md#for-coding-agents) for helper selection and
