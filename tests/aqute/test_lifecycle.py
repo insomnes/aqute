@@ -152,7 +152,9 @@ async def test_stop_resets_failure_count_and_preserves_results():
     async def handler(_value: int) -> int:
         raise ValueError("failed task")
 
-    engine = Aqute(handler, 1, total_failed_tasks_limit=2)
+    engine = Aqute(
+        handler, 1, total_failed_tasks_limit=2, result_queue=asyncio.Queue(0)
+    )
     for value in range(2):
         async with engine:
             await engine.add_task(value)

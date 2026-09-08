@@ -21,7 +21,7 @@ async def test_pending_excludes_blocked_submission_and_running_includes_handler(
         await release.wait()
         return value
 
-    engine = Aqute(handler, 1, input_task_queue_size=1)
+    engine = Aqute(handler, 1, input_task_queue_size=1, result_queue=asyncio.Queue(0))
     assert engine.counters == AquteCounters(0, 0, 0, 0, 0)
     async with engine:
         await engine.add_task(1)
@@ -59,7 +59,7 @@ async def test_terminal_counts_survive_result_consumption_and_reset_on_reuse():
             raise ValueError("retry")
         return value
 
-    engine = Aqute(handler, 2, retry_count=1)
+    engine = Aqute(handler, 2, retry_count=1, result_queue=asyncio.Queue(0))
     async with engine:
         for value in range(3):
             await engine.add_task(value)

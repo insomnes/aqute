@@ -39,6 +39,10 @@ improve throughput for small tasks at the cost of result latency. The default
 preserves per-item cooperative yielding. Handlers still receive one item per call;
 configure worker concurrency and queue limits separately.
 
+All APIs default each queue to `workers_count` items. Manual runs must consume
+results concurrently, or explicitly choose unlimited queues with `0` for
+[run-then-drain or pre-submission](https://insomnes.github.io/aqute/usage/#queue-default-migration).
+
 ## Bounded HTTP processing
 
 The [runnable HTTP example](https://insomnes.github.io/aqute/http_client/) combines
@@ -64,6 +68,7 @@ The [documentation](https://insomnes.github.io/aqute/) includes the complete qui
 [Usage](https://insomnes.github.io/aqute/usage/) covers bounded buffering, streaming cleanup, rate limits,
 retries, shutdown, counters, and deprecated method names. Full examples cover
 [streaming](https://insomnes.github.io/aqute/streaming/), [bounded HTTP processing](https://insomnes.github.io/aqute/http_client/),
+[manual result draining](https://insomnes.github.io/aqute/manual_drain/),
 and [service shutdown](https://insomnes.github.io/aqute/service_shutdown/).
 
 The [documentation source](https://github.com/insomnes/aqute/blob/main/docs/index.md) includes code directly from these

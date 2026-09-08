@@ -16,6 +16,8 @@ async def test_priority_queue():
         workers_count=1,
         handle_coro=non_failing_handler,
         use_priority_queue=True,
+        input_task_queue_size=0,
+        result_queue=asyncio.Queue(0),
     )
     await aqute.add_task(1_000_000)
     await aqute.add_task(10, task_priority=10)
