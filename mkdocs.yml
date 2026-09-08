@@ -6,6 +6,8 @@ edit_uri: edit/main/docs/
 theme:
   name: material
   font: false
+  features:
+    - content.action.edit
 nav:
   - Quickstart: index.md
   - Usage: usage.md
