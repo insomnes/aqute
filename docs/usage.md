@@ -1,9 +1,9 @@
 # Usage
 
-This page covers the development API for Python 3.11+. Follow the
-[development installation instructions](index.md#development-installation).
-For PyPI 0.9.3, use its versioned
-[README](https://github.com/insomnes/aqute/blob/0.9.3/README.md#quickstart).
+This page covers the 0.10.0 API for Python 3.11+. Follow the
+[installation instructions](index.md#installation).
+For the 0.9.x maintenance API, use the
+[0.9.3 quickstart](https://github.com/insomnes/aqute/blob/0.9.3/README.md#quickstart).
 
 ## Task results
 
@@ -338,7 +338,7 @@ retains the old API for Python 3.9 and 3.10.
 
 ## For coding agents
 
-For application code, [install the development source](index.md#development-installation)
+For application code, [install Aqute](index.md#installation)
 with Python 3.11+ and import `Aqute` from `aqute`. The
 [canonical HTTP recipe](http_client.md) also requires `httpx`; the checkout's dev
 group includes it. Adapt that runnable source instead of reconstructing the API

@@ -16,10 +16,10 @@ for a short comparison with plain asyncio and aiometer.
 
 ## Quickstart
 
-This README and the linked documentation cover the unreleased development API
+This README and the linked documentation cover the 0.10.0 API
 for Python 3.11+. Follow the
-[development installation instructions](https://insomnes.github.io/aqute/#development-installation)
-before running these examples. For `pip install aqute`, use the versioned
+[installation instructions](https://insomnes.github.io/aqute/#installation)
+before running these examples. For the 0.9.x maintenance API, use the
 [0.9.3 quickstart](https://github.com/insomnes/aqute/blob/0.9.3/README.md#quickstart).
 
 Pass your async handler to `Aqute`. Inside an async function, collect its results:

@@ -4,10 +4,10 @@ Process independent GET requests with one shared HTTPX client and a fresh Aqute
 engine per run. The example combines four workers, an attempt-rate limiter,
 selected retries, and incremental result consumption.
 
-This recipe uses the development API for Python 3.11+. Follow the
-[development installation instructions](index.md#development-installation).
-For PyPI 0.9.3, use its versioned
-[README](https://github.com/insomnes/aqute/blob/0.9.3/README.md#quickstart).
+This recipe uses the 0.10.0 API for Python 3.11+. Follow the
+[installation instructions](index.md#installation).
+For the 0.9.x maintenance API, use the
+[0.9.3 quickstart](https://github.com/insomnes/aqute/blob/0.9.3/README.md#quickstart).
 
 From a development checkout, run the example offline:
 
@@ -28,8 +28,8 @@ returns HTTP 503, which the example reports as a terminal error. The entry point
 logs both page bodies and ends with `Results: 2 pages`. Each run uses a separate
 client and engine.
 
-For real requests, call `await fetch_pages(urls)` without a transport. Install the
-[development source](index.md#development-installation) and `httpx` in your
+For real requests, call `await fetch_pages(urls)` without a transport. Install
+[Aqute](index.md#installation) and `httpx` in your
 application environment. HTTPX is a development dependency in this checkout;
 it is not an Aqute runtime dependency.
 
