@@ -161,6 +161,8 @@ SDK-internal retries inside the handler multiply requests without acquiring the
 limiter again. The [HTTP example source](http_client.md#runnable-source) parses
 `Retry-After` seconds or HTTP dates in application code and applies the shared
 pause. Missing or invalid headers use a one-second fallback; past dates use zero.
+The example applies no upper bound to valid `Retry-After` delays. Apply any
+required delay cap in application code.
 
 Its offline entry point also compares eight workers processing forty URLs during
 one 300 ms throttle window, with `Retry-After: 1` and a 100-attempt/second limiter.
