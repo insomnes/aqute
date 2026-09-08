@@ -1,7 +1,6 @@
 import asyncio
 import contextlib
 import logging
-import warnings
 from collections.abc import (
     AsyncGenerator,
     AsyncIterable,
@@ -638,73 +637,3 @@ class Aqute(Generic[TData, TResult]):
         tb: TracebackType | None,
     ) -> None:
         await self.stop()
-
-    def set_all_tasks_added(self) -> None:
-        """Deprecated; use finish_submitting()."""
-        warnings.warn(
-            "set_all_tasks_added() is deprecated; use finish_submitting()",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.finish_submitting()
-
-    async def wait_till_end(self) -> None:
-        """Deprecated; use finish()."""
-        warnings.warn(
-            "wait_till_end() is deprecated; use finish()",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        await self.finish()
-
-    async def start_and_wait(self) -> None:
-        """Deprecated; use run()."""
-        warnings.warn(
-            "start_and_wait() is deprecated; use run()",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        await self.run()
-
-    async def get_task_result(self) -> AquteTask[TData, TResult]:
-        """Deprecated; use get_result()."""
-        warnings.warn(
-            "get_task_result() is deprecated; use get_result()",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return await self.get_result()
-
-    def extract_all_results(self) -> list[AquteTask[TData, TResult]]:
-        """Deprecated; use drain_results()."""
-        warnings.warn(
-            "extract_all_results() is deprecated; use drain_results()",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.drain_results()
-
-    async def apply_to_all(
-        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
-    ) -> list[AquteTask[TData, TResult]]:
-        """Deprecated; use process_all()."""
-        warnings.warn(
-            "apply_to_all() is deprecated; use process_all()",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return await self.process_all(tasks_data)
-
-    def apply_to_each(
-        self, tasks_data: Iterable[TData] | AsyncIterable[TData]
-    ) -> AsyncGenerator[AquteTask[TData, TResult]]:
-        """Deprecated generator API; close partial iteration with aclose/aclosing.
-
-        Prefer ``async with engine.iter_results(items) as results`` in new code.
-        """
-        warnings.warn(
-            "apply_to_each() is deprecated; use iter_results()",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._iter_results(tasks_data)

@@ -69,7 +69,8 @@ source and explains buffering overrides, retry safety, and its fail-fast policy.
 
 The [documentation](https://insomnes.github.io/aqute/) includes the complete quickstart.
 [Usage](https://insomnes.github.io/aqute/usage/) covers bounded buffering, streaming cleanup, rate limits,
-retries, shutdown, counters, and deprecated method names. Full examples cover
+retries, shutdown, counters, and migration from 0.9.2. The
+[changelog](CHANGELOG.md) collects the breaking changes and method renames. Full examples cover
 [streaming](https://insomnes.github.io/aqute/streaming/), [bounded HTTP processing](https://insomnes.github.io/aqute/http_client/),
 [manual result draining](https://insomnes.github.io/aqute/manual_drain/),
 and [service shutdown](https://insomnes.github.io/aqute/service_shutdown/).

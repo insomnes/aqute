@@ -116,7 +116,7 @@ Run-then-drain starts processing before submission and needs only
 `result_queue=asyncio.Queue(0)`; the input queue can keep its default capacity.
 See the [manual drain example](manual_drain.md). With finite result queues and no
 concurrent consumer, `add_task()` or `finish()` can wait indefinitely. Aqute does
-not detect this arrangement. Deprecated methods use the same queue defaults.
+not detect this arrangement.
 
 Helpers now reject pending manual tasks, so preloading with `add_task()` before
 `process_all()` or `iter_results()` raises `AquteError`. Follow
@@ -304,67 +304,37 @@ flow to inspect them after `finish()` and before `stop()`. The
 [retry](retry_progress.md) and [service](service_shutdown.md) examples log these
 snapshots.
 
-## Public names and compatibility
+## Migration from 0.9.2
 
-Use the replacement names in new code. Old names remain compatible wrappers and
-emit `DeprecationWarning` at the caller. Removal will occur only in an announced
-breaking release; no removal version is currently scheduled.
+The next breaking release removes the old method names without compatibility
+wrappers. Update calls when upgrading from 0.9.2:
 
-| Deprecated name | Replacement |
+| 0.9.2 call | Replacement |
 | --- | --- |
-| `set_all_tasks_added()` | `finish_submitting()` |
-| `wait_till_end()` | `await finish()` |
-| `start_and_wait()` | `await run()` |
-| `get_task_result()` | `await get_result()` |
-| `extract_all_results()` | `drain_results()` |
-| `apply_to_all(items)` | `await process_all(items)` |
-| `apply_to_each(items)` | `async with iter_results(items) as results` |
+| `engine.set_all_tasks_added()` | `engine.finish_submitting()` |
+| `await engine.wait_till_end()` | `await engine.finish()` |
+| `await engine.start_and_wait()` | `await engine.run()` |
+| `await engine.get_task_result()` | `await engine.get_result()` |
+| `engine.extract_all_results()` | `engine.drain_results()` |
+| `await engine.apply_to_all(items)` | `await engine.process_all(items)` |
+| `engine.apply_to_each(items)` | `async with engine.iter_results(items) as results` |
+
+For streaming, iterate `results` inside the async context shown in
+[streaming and cleanup](#streaming-and-cleanup). The context awaits cleanup on
+exit, including after an early `break`. Call `anext(results)` on the yielded
+iterator; do not call `aclose()` on the context.
 
 `start()`, `stop()`, and `add_task()` keep their names. Generic handler input and
-result types are preserved through both interfaces and the async context manager.
-For example, a handler accepting `int` makes `add_task("text")` a type error;
-this is an intentionally invalid call, not a runnable usage example.
+result types are preserved through the public methods and the async context
+manager. For example, a handler accepting `int` makes `add_task("text")` a type
+error; this is an intentionally invalid call, not a runnable usage example.
 
-### Managed streaming migration
-
-This is a pre-1.0 signature and typing break for `iter_results()`. It is now a
-regular method returning
-`AbstractAsyncContextManager[AsyncIterator[AquteTask[TData, TResult]]]`, rather
-than an async generator returning `AsyncGenerator[AquteTask[TData, TResult]]`.
-The input remains `Iterable[TData] | AsyncIterable[TData]`; the keyword-only
-`submission_batch_size: int = 1` is unchanged. Validation still occurs on first
-iteration, before input consumption. No extra import or exported type is needed
-for normal use.
-
-Before:
-
-```python
-from contextlib import aclosing
-
-async with aclosing(engine.iter_results(items)) as results:
-    async for task in results:
-        consume(task)
-```
-
-After:
-
-```python
-async with engine.iter_results(items) as results:
-    async for task in results:
-        consume(task)
-```
-
-Also replace bare `async for task in engine.iter_results(items)` with the new
-context form. Call `anext(results)` on the iterator yielded by the context.
-Do not call `aclose()` on the context returned by `iter_results()`.
-
-Deprecated `apply_to_each(items)` retains its `AsyncGenerator` return type and
-warning. Existing `async for` callers still work. Use
-`async with contextlib.aclosing(engine.apply_to_each(items)) as results` or
-explicitly await that generator's `aclose()` when stopping early. Its compatibility
-wrapper shares the same processing and cleanup path; migrate new code to the
-managed `iter_results()` form. `process_all()` keeps its coroutine signature and
-ordered list return type.
+The upgrade also requires Python 3.11 or newer and uses finite buffering by
+default for helper and manual runs. See [buffering](#buffering) for explicit unlimited settings and the
+[changelog](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md) for the
+breaking changes together. The
+[0.9.x maintenance branch](https://github.com/insomnes/aqute/tree/maintenance/0.9.x)
+retains the old API for Python 3.9 and 3.10.
 
 ## For coding agents
 
