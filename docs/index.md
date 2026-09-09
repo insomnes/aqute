@@ -17,10 +17,10 @@ token-cost admission, shared throttling pauses, and checkpoints without a vendor
 
 ## Installation
 
-These pages and examples cover the 0.10.1 API. With Python 3.11+, install Aqute:
+These pages and examples cover the 0.10.3 API. With Python 3.11+, install Aqute:
 
 ```bash
-python -m pip install aqute==0.10.1
+python -m pip install aqute==0.10.3
 ```
 
 ## Choose an API
@@ -194,7 +194,7 @@ Install the optional HTTP client, then run this standalone example. It makes
 real GET requests; replace `urls` with your endpoints.
 
 ```bash
-python -m pip install aqute==0.10.1 httpx
+python -m pip install aqute==0.10.3 httpx
 ```
 
 Keep one client open around the managed result stream so workers finish cleanup

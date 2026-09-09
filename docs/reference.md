@@ -1,6 +1,6 @@
 # API and rate limits
 
-This reference covers Aqute 0.10.2 and unreleased fixes for Python 3.11+.
+This reference covers Aqute 0.10.3 for Python 3.11+.
 For runnable workflows, start with [Choose an API](index.md#choose-an-api) and the [usage guide](usage.md).
 Import the engine with `from aqute import Aqute`.
 

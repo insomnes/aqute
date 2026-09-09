@@ -14,7 +14,7 @@ uv run --locked python -m examples.request_pool
 Install Aqute 0.10.1 or newer before using this recipe in an application:
 
 ```bash
-python -m pip install aqute==0.10.1
+python -m pip install aqute==0.10.3
 ```
 
 The released package includes the bounded-submission cancellation fix missing

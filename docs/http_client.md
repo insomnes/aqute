@@ -4,7 +4,7 @@ Process independent GET requests with one shared HTTPX client and a fresh Aqute
 engine per run. The example combines four workers, an attempt-rate limiter,
 selected retries, and incremental result consumption.
 
-This recipe uses the 0.10.1 API for Python 3.11+. Follow the
+This recipe uses the 0.10.3 API for Python 3.11+. Follow the
 [installation instructions](index.md#installation).
 
 ## Use in an application

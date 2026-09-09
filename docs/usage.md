@@ -2,7 +2,7 @@
 
 <span id="for-coding-agents"></span>
 
-This guide covers the 0.10.2 API and unreleased fixes for Python 3.11+. Start with
+This guide covers the 0.10.3 API for Python 3.11+. Start with
 [installation](index.md#installation) and [Choose an API](index.md#choose-an-api).
 See the [API reference](reference.md) for parameter types and defaults, or the
 [changelog](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md) for migration
@@ -173,8 +173,11 @@ from aqute import AquteError, AquteTaskTimeoutError, AquteTooManyTasksFailedErro
 
 `start_timeout_seconds` limits waiting for the first input after start, including
 an asynchronous source's first item. Prequeued inputs do not wait, even at zero
-or negative values. An empty startup still expires; marking empty input complete
-with `finish()` or `finish_submitting()` requires no wait.
+or negative values. If the startup wait begins before any input arrives or
+completion is signalled, it remains subject to the timeout. Empty input requires
+no wait when `finish()` or `finish_submitting()` signals completion before that
+wait begins.
+
 `total_failed_tasks_limit` stops processing
 with `AquteTooManyTasksFailedError` when collected terminal failures reach the limit.
 The limit is inclusive: `total_failed_tasks_limit=1` stops on the first collected
@@ -182,7 +185,7 @@ terminal failure, after publishing that task's result. The background run task
 raises the error and cancels remaining workers; cancelled handlers do not produce
 terminal results.
 
-**Unreleased:** `finish()` and `iter_results()` raise `AquteError` if processing
+**Since 0.10.3:** `finish()` and `iter_results()` raise `AquteError` if processing
 is independently cancelled, for example by another caller invoking `stop()`.
 Cancellation of the consuming caller still propagates as `CancelledError`;
 an expired outer `asyncio.timeout` still raises `TimeoutError`, including during

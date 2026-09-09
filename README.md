@@ -21,7 +21,7 @@ For a comparison with plain asyncio, aiometer, and broker-backed queues, see
 Aqute requires Python 3.11+. Install the version used by these examples:
 
 ```bash
-python -m pip install aqute==0.10.1
+python -m pip install aqute==0.10.3
 ```
 
 ## Quickstart
@@ -183,7 +183,7 @@ Install the optional HTTP client, then run this standalone example. It makes
 real GET requests; replace `urls` with your endpoints.
 
 ```bash
-python -m pip install aqute==0.10.1 httpx
+python -m pip install aqute==0.10.3 httpx
 ```
 
 Keep one client open around the managed result stream so workers finish cleanup
