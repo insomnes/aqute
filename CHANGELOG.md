@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix cancelled submissions to a full input queue leaving later results
+  unpublished. Admission and its task count now complete together, so cancelling
+  the submitting caller does not lose track of work already queued.
+
 ## 0.10.0 - 2026-09-08
 
 ### Breaking changes from 0.9.2

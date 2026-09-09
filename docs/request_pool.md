@@ -11,6 +11,9 @@ Run the offline example from a development checkout:
 uv run --locked python -m examples.request_pool
 ```
 
+Use the checkout for this recipe: it fixes a bounded-submission cancellation bug
+that is still present in 0.10.0.
+
 The simulated handler sleeps for 25–100 ms. It returns a valid `None` for
 `empty`, raises a terminal `ValueError` for `invalid`, and throttles `retry` once.
 The throttle pauses new attempts for 150 ms before raising the retryable error.
@@ -152,6 +155,9 @@ up pending futures; callers still waiting for admission can receive `AquteError`
 The application must await its caller tasks too. Use an outer `asyncio.timeout`
 when the whole operation needs a deadline. Cleanup requires cooperative handlers.
 Unexpected processing failures propagate and can include an `ExceptionGroup`.
+Ordinary exceptions leaving the context body, including an unhandled `ask()` error,
+can also propagate as an `ExceptionGroup` from the background `TaskGroup`.
+Handle individual request errors inside the context, or use `except*` outside it.
 
 This context manager is example code, not an installed Aqute API or a durable
 request service. Copy it into application code and own the real client's lifetime.

@@ -110,3 +110,45 @@ async def test_normal_exit_delivers_an_admitted_reply():
             await started.wait()
             release.set()
         assert await caller == "admitted"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("defer_cancellation", [False, True])
+async def test_cancel_at_full_queue_release_keeps_later_replies_available(
+    defer_cancellation,
+):
+    """Cancelling a waiting caller must not strand subsequent callers' results."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+    cancelled: asyncio.Task[str | None] | None = None
+
+    async def handle(prompt: str) -> str:
+        if prompt == "first":
+            started.set()
+            await release.wait()
+        if prompt == "queued":
+            assert cancelled is not None
+            if defer_cancellation:
+                asyncio.get_running_loop().call_soon(cancelled.cancel)
+            else:
+                cancelled.cancel()
+            await asyncio.sleep(0)
+        return prompt
+
+    async with (
+        asyncio.timeout(1),
+        request_pool(Aqute(handle, 1)) as ask,
+        asyncio.TaskGroup() as callers,
+    ):
+        first = callers.create_task(ask("first"))
+        await started.wait()
+        queued = callers.create_task(ask("queued"))
+        await asyncio.sleep(0)
+        cancelled = callers.create_task(ask("cancelled"))
+        await asyncio.sleep(0)
+        release.set()
+        assert await first == "first"
+        assert await queued == "queued"
+        with pytest.raises(asyncio.CancelledError):
+            await cancelled
+        assert await ask("later") == "later"

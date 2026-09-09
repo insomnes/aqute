@@ -253,8 +253,18 @@ class Aqute(Generic[TData, TResult]):
             )
         if load is None or not self._foreman.in_queue.full():
             await self._foreman.add_task(task)
+            self._added_tasks_count += 1
+            self._load_changed.set()
         else:
-            admission = asyncio.create_task(self._foreman.add_task(task))
+
+            async def admit() -> None:
+                # Count the item before cancellation can resume its caller.
+                # The load task below already supervises worker failure.
+                await self._foreman.in_queue.put(task)
+                self._added_tasks_count += 1
+                self._load_changed.set()
+
+            admission = asyncio.create_task(admit())
             try:
                 await asyncio.wait(
                     (admission, load), return_when=asyncio.FIRST_COMPLETED
@@ -269,9 +279,6 @@ class Aqute(Generic[TData, TResult]):
                 admission.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await admission
-
-        self._added_tasks_count += 1
-        self._load_changed.set()
 
         return task_id
 
