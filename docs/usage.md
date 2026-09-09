@@ -145,7 +145,8 @@ limiter = SlidingRateLimiter(max_rate=5, time_period=0.2)
 ```
 
 The sliding limiter can grant all five permits together. A token bucket with
-`allow_burst=False` instead spaces grants by `time_period / max_rate` seconds.
+`allow_burst=False` (the default) instead spaces grants by
+`time_period / max_rate` seconds.
 These limits apply to limiter grants; a pause wrapper can delay handler starts
 after a grant, as described below.
 
@@ -156,9 +157,12 @@ from aqute.ratelimiter import PausableRateLimiter, TokenBucketRateLimiter
 
 limiter = PausableRateLimiter(TokenBucketRateLimiter(max_rate=10))
 engine = Aqute(handle, workers_count=4, rate_limiter=limiter)
-# Application code can call this after a throttle response:
+# Inside handle(), before raising a retryable throttle error:
 limiter.pause_for(2.0)
 ```
+
+Call `pause_for()` in the handler before raising the retryable throttle error;
+the result consumer receives only terminal outcomes and cannot pause earlier retries.
 
 `pause_for(seconds)` extends the pause from `time.monotonic()` now.
 `pause_until(deadline)` takes an absolute deadline from that same clock.
@@ -279,6 +283,11 @@ Start workers before filling a bounded input queue; otherwise `add_task()` raise
 `await add_task(data)` and consume results concurrently with `await get_result()`.
 Custom IDs use `task_id`; omitted IDs are generated. `drain_results()` removes currently available results without waiting.
 `get_result()` raises `AquteError` after normal completion when no results remain.
+While the run is active and the result queue is empty, `get_result()` waits for
+a result or run completion, with no timeout of its own.
+After start, a full input queue makes `add_task()` wait for capacity or run
+completion; default capacity `workers_count` can therefore block service callers
+inside submission, so bound concurrent callers or apply an admission timeout.
 
 Results use one shared queue. `get_result()` returns the next available result,
 not necessarily the result of the caller's last `add_task()`. For per-caller
@@ -311,8 +320,9 @@ input. A drain deadline requests cancellation; it cannot force an uncooperative
 coroutine to terminate. The example's caller receives whether draining timed out.
 In-process completion does not imply durable delivery.
 
-Completed results remain available after `stop()`. The engine can be reused; drain
-retained results before using a helper again. For lower-level worker queues,
+Completed results remain available after `stop()`. After `await stop()`, call
+`start()` again to reuse the same engine; `stop()` resets the run task and counters.
+Drain retained results before using a helper again. For lower-level worker queues,
 `aqute.worker.Foreman` exposes `start()`, `add_task(AquteTask(...))`,
 `get_handled_task()`, `finalize()`, and `stop()`. Consume finite result queues while
 waiting for `finalize()`.
