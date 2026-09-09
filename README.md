@@ -28,8 +28,9 @@ Save any example below as `quickstart.py` and run `python quickstart.py`.
 The first three need only Aqute and the standard library. The HTTP example also
 needs `httpx`.
 
-The first three handlers use `await asyncio.sleep(0.1)` to simulate I/O
-without blocking the event loop. The HTTP handler awaits real network I/O.
+The first three handlers use `await asyncio.sleep(uniform(0.025, 0.1))` to
+simulate I/O with a random delay of 25–100 ms without blocking the event loop.
+The HTTP handler awaits real network I/O.
 
 ### 1. Collect a finite batch in input order
 
@@ -41,12 +42,13 @@ one input item per call; `workers_count=4` permits up to four concurrent handler
 
 import asyncio
 import logging
+from random import uniform
 
 from aqute import Aqute
 
 
 async def handle(value: int) -> int:
-    await asyncio.sleep(0.1)  # Simulate asynchronous I/O.
+    await asyncio.sleep(uniform(0.025, 0.1))  # Simulate asynchronous I/O.
     return value * 2
 
 
@@ -77,12 +79,13 @@ other results. This example uses local conversion to make a failure reproducible
 
 import asyncio
 import logging
+from random import uniform
 
 from aqute import Aqute
 
 
 async def parse_port(value: str) -> int:
-    await asyncio.sleep(0.1)  # Simulate asynchronous I/O.
+    await asyncio.sleep(uniform(0.025, 0.1))  # Simulate asynchronous I/O.
     return int(value)
 
 
@@ -118,6 +121,7 @@ after three results.
 
 import asyncio
 import logging
+from random import uniform
 
 from aqute import Aqute
 
@@ -134,7 +138,7 @@ async def main() -> int:
             logger.info("Source closed")
 
     async def handle(value: int) -> int:
-        await asyncio.sleep(0.1)  # Simulate asynchronous I/O.
+        await asyncio.sleep(uniform(0.025, 0.1))  # Simulate asynchronous I/O.
         return value * 2
 
     engine = Aqute(handle, workers_count=3)

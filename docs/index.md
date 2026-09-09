@@ -26,8 +26,9 @@ After [installing Aqute](#installation), save any example below as `quickstart.p
 and run `python quickstart.py`. The first three need only Aqute and the standard
 library. The HTTP example also needs `httpx`.
 
-The first three handlers use `await asyncio.sleep(0.1)` to simulate I/O
-without blocking the event loop. The HTTP handler awaits real network I/O.
+The first three handlers use `await asyncio.sleep(uniform(0.025, 0.1))` to
+simulate I/O with a random delay of 25–100 ms without blocking the event loop.
+The HTTP handler awaits real network I/O.
 
 ### 1. Collect a finite batch in input order
 

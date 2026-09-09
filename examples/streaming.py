@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from random import uniform
 
 from aqute import Aqute
 
@@ -18,7 +19,7 @@ async def main() -> int:
             logger.info("Source closed")
 
     async def handle(value: int) -> int:
-        await asyncio.sleep(0.1)  # Simulate asynchronous I/O.
+        await asyncio.sleep(uniform(0.025, 0.1))  # Simulate asynchronous I/O.
         return value * 2
 
     engine = Aqute(handle, workers_count=3)

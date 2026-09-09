@@ -2,12 +2,13 @@
 
 import asyncio
 import logging
+from random import uniform
 
 from aqute import Aqute
 
 
 async def parse_port(value: str) -> int:
-    await asyncio.sleep(0.1)  # Simulate asynchronous I/O.
+    await asyncio.sleep(uniform(0.025, 0.1))  # Simulate asynchronous I/O.
     return int(value)
 
 
