@@ -199,6 +199,18 @@ A custom limiter implements `async acquire(name="", task=None)`. It must propaga
 cancellation. CPU-heavy or blocking work in a handler blocks the event loop;
 Aqute does not move it to threads or processes automatically.
 
+For a synchronous I/O handler, wrap the call in an async handler with
+`return await asyncio.to_thread(fn, item)`. The default executor caps its threads
+at `min(32, (cpu_count or 1) + 4)`: Python 3.11–3.12 uses `os.cpu_count()`, while
+Python 3.13+ uses `os.process_cpu_count()`. Effective concurrency can therefore be
+below `workers_count`. If needed, configure a custom `ThreadPoolExecutor(max_workers=...)`
+with `asyncio.get_running_loop().set_default_executor(executor)` before submitting
+work, and own its shutdown. See Python's [executor defaults](https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor)
+and [`to_thread`](https://docs.python.org/3/library/asyncio-task.html#asyncio.to_thread).
+Cancellation or an Aqute timeout does not stop an already running thread; retries
+can overlap the original call, so use operation-level timeouts and safe retry
+policies. Threads generally do not make CPU-bound Python work parallel under the GIL.
+
 With `use_priority_queue=True`, pass `task_priority` to `add_task()`. Lower values
 run first among admitted pending tasks. Priority does not preempt an occupied
 worker. A worker retains its task through retries.

@@ -11,8 +11,10 @@ offload them to threads or processes.
 Use it for API ingestion and backfills, infrastructure automation, or independent
 remote inference and evaluation requests. Your application owns retry safety,
 checkpoints, token budgets, and provider policy. See
-[when to choose Aqute](https://insomnes.github.io/aqute/#when-to-choose-aqute)
-for a short comparison with plain asyncio and aiometer.
+[LLM batch inference](https://insomnes.github.io/aqute/llm_inference/) for an offline
+example with token-cost admission, shared throttling pauses, and checkpoints.
+For a comparison with plain asyncio, aiometer, and broker-backed queues, see
+[when to choose Aqute](https://insomnes.github.io/aqute/#when-to-choose-aqute).
 
 ## Installation
 

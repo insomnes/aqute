@@ -12,6 +12,9 @@ Typical uses are API ingestion and backfills, infrastructure automation, and
 independent remote inference or evaluation requests. Your application owns retry
 safety, checkpoints, token budgets, and provider policy.
 
+The [LLM batch inference example](llm_inference.md) shows application-owned
+token-cost admission, shared throttling pauses, and checkpoints without a vendor SDK.
+
 ## Installation
 
 These pages and examples cover the 0.10.0 API. With Python 3.11+, install Aqute:
@@ -153,6 +156,7 @@ application ownership rules.
 | Plain asyncio | [`gather()`](https://docs.python.org/3/library/asyncio-task.html#asyncio.gather) collects results in input order. [`TaskGroup`](https://docs.python.org/3/library/asyncio-task.html#task-groups) awaits its tasks on context exit. | A small finite batch only needs concurrent calls, or your application already owns retries and flow control. |
 | [aiometer](https://github.com/florimondmanca/aiometer#usage) | `max_at_once` limits concurrent tasks; `max_per_second` limits starts per second. `run_all()` collects ordered results; `amap()` streams results as they become available. It supports asyncio and Trio. | You need concurrency and start-rate limits with result collection, and prefer to keep retry policy in your handler. |
 | Aqute | The [worker-pool API](usage.md) combines retry filters and delays, per-task success or error outcomes, synchronous or asynchronous input, and explicit shutdown. | Repeated I/O jobs need these controls together, such as an ingestion run that retries selected failures and records each terminal outcome. |
+| Broker-backed queues ([arq](https://arq-docs.helpmanual.io/), [Taskiq](https://taskiq-python.github.io/), [Dramatiq](https://dramatiq.io/), [Celery](https://docs.celeryq.dev/)) | Workers exchange tasks through a configured broker; deployment and delivery guarantees depend on the chosen system. Aqute runs in-process and needs no broker infrastructure. | Work must outlive the submitting process or run across independently deployed workers, and you can operate the broker and workers. |
 
 For infrastructure changes, retries can repeat side effects; the application must
 decide which operations are safe to repeat. For remote inference, Aqute schedules
