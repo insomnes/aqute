@@ -9,6 +9,12 @@
   `AquteTaskTimeoutError`; retry filters now match the original exception.
   Use `TimeoutError` for handler timeouts and `AquteTaskTimeoutError` for Aqute
   deadlines, or include both types to select or exclude both kinds of timeout.
+- Fail the run with an `ExceptionGroup` containing `AquteError` when an awaited
+  operation propagates `asyncio.CancelledError` without a cancellation request
+  on the worker, instead of leaving the run waiting indefinitely. The cancelled
+  work is not retried and produces no terminal task result. Sibling workers are
+  cancelled and awaited for cooperative cleanup; stop and caller cancellation
+  retain their existing behavior.
 
 ## 0.10.1 - 2026-09-09
 

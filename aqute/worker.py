@@ -6,7 +6,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any, Generic
 
-from aqute.errors import AquteTaskTimeoutError
+from aqute.errors import AquteError, AquteTaskTimeoutError
 from aqute.ratelimiter import RateLimiter
 from aqute.task import END_MARKER, AquteTask, AquteTaskQueueType, TData, TResult
 
@@ -60,6 +60,16 @@ class Worker(Generic[TData, TResult]):
                 if task.data is END_MARKER:
                     return
                 await self.handle_task(task)
+            except asyncio.CancelledError as exc:
+                worker = asyncio.current_task()
+                assert worker is not None
+                if worker.cancelling():
+                    raise
+                # TaskGroup ignores child cancellation. Fail the run when an
+                # awaited operation cancels without a request to stop this worker.
+                raise AquteError(
+                    f"Worker {self.name} on task {task.task_id} cancelled unexpectedly"
+                ) from exc
             finally:
                 self._counters.running -= 1
                 self.input_q.task_done()
