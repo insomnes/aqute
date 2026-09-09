@@ -13,6 +13,8 @@ uv run --locked python -m examples.quickstart
 uv run --locked python -m examples.streaming
 uv run --locked python -m examples.retry_progress
 uv run --locked python -m examples.http_client
+uv run --locked python -m examples.llm_inference
+uv run --locked python -m examples.request_pool
 uv run --locked python -m examples.manual_drain
 uv run --locked python -m examples.service_shutdown
 ```
@@ -20,7 +22,8 @@ uv run --locked python -m examples.service_shutdown
 `make check` runs Ruff formatting and lint checks, ty, pytest with coverage, and a
 strict documentation build.
 The example tests verify returned values, failures, and cleanup. Entrypoint checks
-execute `quickstart`, `streaming`, `retry_progress`, `http_client`, and `manual_drain`.
+execute `quickstart`, `streaming`, `retry_progress`, `http_client`, `llm_inference`, `request_pool`,
+and `manual_drain`.
 Commands use `uv.lock`; update dependencies with `uv lock --upgrade` and verify them with
 `make check`. CI tests Python 3.11, 3.12, 3.13, and 3.14.
 
@@ -38,8 +41,15 @@ The site uses [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/
 with system fonts. Its dependencies are included in the locked development environment.
 Run commands from the repository root. `make docs` builds the site in `site/`;
 `uv run --locked mkdocs serve` provides a local preview at
-`http://127.0.0.1:8000/aqute/`. The documentation includes the actual files in
-`examples/`. Missing source files fail the build.
+`http://127.0.0.1:8000/aqute/`. The Markdown files contain full copies of the source
+in `examples/`, so the code is also visible when reading the files on GitHub.
+HTML `example` and `/example` comments mark each generated block; the opening
+comment names its source path, such as `examples/quickstart.py`. Keep each marker
+on its own line. Edit the Python source, then run `make sync-examples` to update
+every marked copy in `README.md` and `docs/**/*.md`. Text outside those blocks is
+preserved. `make check-examples` checks without writing and reports outdated
+copies, missing sources, or malformed markers. Both `make docs` and `make check`
+run it, including in CI.
 
 ## Documentation publication
 

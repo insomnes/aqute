@@ -1,4 +1,4 @@
-.PHONY: install lint ruff-check-format ruff ty format test coverage docs check build wheel-smoke
+.PHONY: install lint ruff-check-format ruff ty format test coverage docs check build wheel-smoke sync-examples check-examples
 
 SMOKE_PYTHON ?= 3.11
 
@@ -31,7 +31,13 @@ coverage:
 	uv run --locked coverage html
 	uv run --locked genbadge coverage --local -i reports/coverage/coverage.xml -o reports/coverage/coverage.svg
 
-docs:
+sync-examples:
+	uv run --locked python scripts/sync_examples.py
+
+check-examples:
+	uv run --locked python scripts/sync_examples.py --check
+
+docs: check-examples
 	uv run --locked mkdocs build --strict
 
 check: lint coverage docs

@@ -134,6 +134,22 @@ Available implementations are in `aqute.ratelimiter`:
 - `RandomizedIntervalRateLimiter` adds bounded random delays after rolling-cap waits.
 - `PausableRateLimiter` wraps any limiter with a shared monotonic pause.
 
+For `TokenBucketRateLimiter` and `SlidingRateLimiter`, `max_rate` applies over
+`time_period` seconds; the default period is one second. To allow five grants
+in each rolling 0.2-second window:
+
+```python
+from aqute.ratelimiter import SlidingRateLimiter
+
+limiter = SlidingRateLimiter(max_rate=5, time_period=0.2)
+```
+
+The sliding limiter can grant all five permits together. A token bucket with
+`allow_burst=False` (the default) instead spaces grants by
+`time_period / max_rate` seconds.
+These limits apply to limiter grants; a pause wrapper can delay handler starts
+after a grant, as described below.
+
 To pause attempt admission after service throttling, share one wrapper:
 
 ```python
@@ -141,9 +157,12 @@ from aqute.ratelimiter import PausableRateLimiter, TokenBucketRateLimiter
 
 limiter = PausableRateLimiter(TokenBucketRateLimiter(max_rate=10))
 engine = Aqute(handle, workers_count=4, rate_limiter=limiter)
-# Application code can call this after a throttle response:
+# Inside handle(), before raising a retryable throttle error:
 limiter.pause_for(2.0)
 ```
+
+Call `pause_for()` in the handler before raising the retryable throttle error;
+the result consumer receives only terminal outcomes and cannot pause earlier retries.
 
 `pause_for(seconds)` extends the pause from `time.monotonic()` now.
 `pause_until(deadline)` takes an absolute deadline from that same clock.
@@ -199,6 +218,18 @@ A custom limiter implements `async acquire(name="", task=None)`. It must propaga
 cancellation. CPU-heavy or blocking work in a handler blocks the event loop;
 Aqute does not move it to threads or processes automatically.
 
+For a synchronous I/O handler, wrap the call in an async handler with
+`return await asyncio.to_thread(fn, item)`. The default executor caps its threads
+at `min(32, (cpu_count or 1) + 4)`: Python 3.11–3.12 uses `os.cpu_count()`, while
+Python 3.13+ uses `os.process_cpu_count()`. Effective concurrency can therefore be
+below `workers_count`. If needed, configure a custom `ThreadPoolExecutor(max_workers=...)`
+with `asyncio.get_running_loop().set_default_executor(executor)` before submitting
+work, and own its shutdown. See Python's [executor defaults](https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor)
+and [`to_thread`](https://docs.python.org/3/library/asyncio-task.html#asyncio.to_thread).
+Cancellation or an Aqute timeout does not stop an already running thread; retries
+can overlap the original call, so use operation-level timeouts and safe retry
+policies. Threads generally do not make CPU-bound Python work parallel under the GIL.
+
 With `use_priority_queue=True`, pass `task_priority` to `add_task()`. Lower values
 run first among admitted pending tasks. Priority does not preempt an occupied
 worker. A worker retains its task through retries.
@@ -241,12 +272,34 @@ group. See [HTTPX's async client guide](https://www.python-httpx.org/async/).
 
 ## Manual processing and shutdown
 
-Use the Aqute async context manager, or `start()` followed by `stop()`. Start workers
-before filling a bounded input queue; otherwise `add_task()` raises `AquteError`
-when the input queue is already full. With default limits, submit with
+Use the Aqute async context manager, or call `engine.start()` and later
+`await engine.stop()` in a `finally` block. `start()` is synchronous and returns
+the background `asyncio.Task`. Awaiting that task waits for the whole run to end;
+do not `await engine.start()` before submitting input. The
+[manual drain example](manual_drain.md) shows explicit start and cleanup.
+
+Start workers before filling a bounded input queue; otherwise `add_task()` raises
+`AquteError` when the input queue is already full. With default limits, submit with
 `await add_task(data)` and consume results concurrently with `await get_result()`.
 Custom IDs use `task_id`; omitted IDs are generated. `drain_results()` removes currently available results without waiting.
 `get_result()` raises `AquteError` after normal completion when no results remain.
+While the run is active and the result queue is empty, `get_result()` waits for
+a result or run completion, with no timeout of its own.
+After start, a full input queue makes `add_task()` wait for capacity;
+it raises `AquteError` if the run completes normally before admission.
+Default capacity `workers_count` can therefore block service callers
+inside submission, so bound concurrent callers or apply an admission timeout.
+
+Results use one shared queue. `get_result()` returns the next available result,
+not necessarily the result of the caller's last `add_task()`. For per-caller
+responses, use one result consumer and route each task by `task.task_id` to an
+application-owned `asyncio.Future`. Register the future under a unique ID before
+`await add_task(data, task_id=...)`, because processing can finish during
+submission. The application owns cancellation and cleanup of these futures,
+including submission failures and shutdown. Check `task.success` or use
+`task.unwrap()` when delivering results; a successful result can be `None`.
+The runnable [per-caller request pool](request_pool.md) shows this routing pattern,
+caller cancellation, and an engine that stays open for later requests.
 
 `finish_submitting()` signals that input submission is complete. `await finish()`
 also sends that signal and waits for processing. Stop producers before either
@@ -270,8 +323,9 @@ input. A drain deadline requests cancellation; it cannot force an uncooperative
 coroutine to terminate. The example's caller receives whether draining timed out.
 In-process completion does not imply durable delivery.
 
-Completed results remain available after `stop()`. The engine can be reused; drain
-retained results before using a helper again. For lower-level worker queues,
+Completed results remain available after `stop()`. After `await stop()`, call
+`start()` again to reuse the same engine; `stop()` resets the run task and counters.
+Drain retained results before using a helper again. For lower-level worker queues,
 `aqute.worker.Foreman` exposes `start()`, `add_task(AquteTask(...))`,
 `get_handled_task()`, `finalize()`, and `stop()`. Consume finite result queues while
 waiting for `finalize()`.
@@ -339,14 +393,16 @@ retains the old API for Python 3.9 and 3.10.
 For application code, [install Aqute](index.md#installation)
 with Python 3.11+ and import `Aqute` from `aqute`. The
 [canonical HTTP recipe](http_client.md) also requires `httpx`; the checkout's dev
-group includes it. Adapt that runnable source instead of reconstructing the API
-from older examples.
+group includes it. For independent callers sharing a long-lived engine, start
+with the [per-caller request pool](request_pool.md). Choose the example matching
+the application's input and result flow instead of reconstructing the API.
 
 | Application need | API |
 | --- | --- |
 | A finite batch with an ordered result list | `await engine.process_all(items)` |
 | Results in completion order, with bounded buffering and incremental consumption | `async with engine.iter_results(items) as results`, then iterate `results` inside the context |
 | Continuous submission with separate producer and consumer ownership | Follow [manual processing and shutdown](#manual-processing-and-shutdown) |
+| Independent callers each waiting for their own reply from a shared engine | Use the [per-caller request pool](request_pool.md) example |
 
 - Create a fresh engine for each helper run. The stream context waits for cleanup
   after completion, early exit, or failure. Keep the external client open around

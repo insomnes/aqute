@@ -12,6 +12,9 @@ Typical uses are API ingestion and backfills, infrastructure automation, and
 independent remote inference or evaluation requests. Your application owns retry
 safety, checkpoints, token budgets, and provider policy.
 
+The [LLM batch inference example](llm_inference.md) shows application-owned
+token-cost admission, shared throttling pauses, and checkpoints without a vendor SDK.
+
 ## Installation
 
 These pages and examples cover the 0.10.0 API. With Python 3.11+, install Aqute:
@@ -35,9 +38,34 @@ The HTTP handler awaits real network I/O.
 Start here when the full result list fits in memory. The handler receives
 one input item per call; `workers_count=4` permits up to four concurrent handlers.
 
+<!-- example: examples/quickstart.py -->
 ```python
---8<-- "examples/quickstart.py"
+"""Run a finite batch and receive results in input order."""
+
+import asyncio
+import logging
+from random import uniform
+
+from aqute import Aqute
+
+
+async def handle(value: int) -> int:
+    await asyncio.sleep(uniform(0.025, 0.1))  # Simulate asynchronous I/O.
+    return value * 2
+
+
+async def main() -> list[int]:
+    tasks = await Aqute(handle, workers_count=4).process_all(range(10))
+    values = [task.unwrap() for task in tasks]
+    assert values == [value * 2 for value in range(10)]
+    return values
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    logging.info("Results: %s", asyncio.run(main()))
 ```
+<!-- /example -->
 
 The result is `[0, 2, 4, 6, 8, 10, 12, 14, 16, 18]`. `process_all()` returns
 completed task objects in input order. `task.unwrap()` returns the handler value
@@ -49,9 +77,38 @@ it does not stop the batch on its first failure.
 Inspect `task.error` when one bad item must not prevent you from using the
 other results. This example uses local conversion to make a failure reproducible.
 
+<!-- example: examples/quickstart_errors.py -->
 ```python
---8<-- "examples/quickstart_errors.py"
+"""Report each failed item and keep the successful results."""
+
+import asyncio
+import logging
+from random import uniform
+
+from aqute import Aqute
+
+
+async def parse_port(value: str) -> int:
+    await asyncio.sleep(uniform(0.025, 0.1))  # Simulate asynchronous I/O.
+    return int(value)
+
+
+async def main() -> None:
+    tasks = await Aqute(parse_port, workers_count=2).process_all(
+        ["443", "invalid", "8080"]
+    )
+    for task in tasks:
+        if task.error is not None:
+            logging.warning("Failed %r: %s", task.data, task.error)
+        else:
+            logging.info("Port: %s", task.unwrap())
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())
 ```
+<!-- /example -->
 
 This logs ports `443` and `8080`, plus a failure for `"invalid"`. Handler
 failures are stored on completed tasks; retries are disabled by default.
@@ -64,9 +121,50 @@ Use `iter_results()` to consume results as they complete without collecting
 the full output. This example takes an asynchronous input source and stops
 after three results.
 
+<!-- example: examples/streaming.py -->
 ```python
---8<-- "examples/streaming.py"
+"""Consume bounded streaming results and stop early with managed cleanup."""
+
+import asyncio
+import logging
+from random import uniform
+
+from aqute import Aqute
+
+logger = logging.getLogger(__name__)
+RESULT_LIMIT = 3
+
+
+async def main() -> int:
+    async def source():
+        try:
+            for value in range(100):
+                yield value
+        finally:
+            logger.info("Source closed")
+
+    async def handle(value: int) -> int:
+        await asyncio.sleep(uniform(0.025, 0.1))  # Simulate asynchronous I/O.
+        return value * 2
+
+    engine = Aqute(handle, workers_count=3)
+    completed = 0
+    async with engine.iter_results(source()) as results:
+        async for task in results:
+            # Replace this log with application-owned processing or persistence.
+            logger.info("Result for %s: %s", task.data, task.unwrap())
+            completed += 1
+            if completed == RESULT_LIMIT:
+                break
+    # Context exit has awaited producer and worker cleanup.
+    return completed
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    logging.info("Results: %s consumed", asyncio.run(main()))
 ```
+<!-- /example -->
 
 Results arrive in completion order, which can differ from input order.
 Leaving `async with` awaits producer and worker cleanup, including after `break`
@@ -90,9 +188,49 @@ python -m pip install aqute==0.10.0 httpx
 Keep one client open around the managed result stream so workers finish cleanup
 before their connections close.
 
+<!-- example: examples/quickstart_http.py -->
 ```python
---8<-- "examples/quickstart_http.py"
+"""Fetch URLs with shared connections, rate limits, and transport retries."""
+
+import asyncio
+import logging
+
+import httpx
+
+from aqute import Aqute
+from aqute.ratelimiter import TokenBucketRateLimiter
+
+
+async def main() -> None:
+    urls = ["https://example.com/", "https://example.org/"]
+    async with httpx.AsyncClient(timeout=5.0) as client:
+
+        async def fetch(url: str) -> int:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.status_code
+
+        engine = Aqute(
+            fetch,
+            workers_count=4,
+            rate_limiter=TokenBucketRateLimiter(max_rate=5),
+            retry_count=2,
+            retry_delay=lambda _attempt, _error: 0.5,
+            specific_errors_to_retry=httpx.TransportError,
+        )
+        async with engine.iter_results(urls) as results:
+            async for task in results:
+                if task.error is not None:
+                    logging.warning("Failed %s: %s", task.data, task.error)
+                else:
+                    logging.info("%s: HTTP %s", task.data, task.unwrap())
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())
 ```
+<!-- /example -->
 
 `workers_count=4` limits concurrent handlers. The limiter spaces attempt
 starts by at least 0.2 seconds, including retries. `retry_count=2` allows at most
@@ -143,6 +281,8 @@ stream with finite queue defaults. `fetch_pages()` returns a count instead of
 retaining every body. Queues bound items, not payload bytes or application data.
 The same source provides an explicit callable path for real requests.
 
+For independent callers awaiting their own replies, see the
+[per-caller request pool](request_pool.md).
 See [For coding agents](usage.md#for-coding-agents) for helper selection and
 application ownership rules.
 
@@ -153,6 +293,7 @@ application ownership rules.
 | Plain asyncio | [`gather()`](https://docs.python.org/3/library/asyncio-task.html#asyncio.gather) collects results in input order. [`TaskGroup`](https://docs.python.org/3/library/asyncio-task.html#task-groups) awaits its tasks on context exit. | A small finite batch only needs concurrent calls, or your application already owns retries and flow control. |
 | [aiometer](https://github.com/florimondmanca/aiometer#usage) | `max_at_once` limits concurrent tasks; `max_per_second` limits starts per second. `run_all()` collects ordered results; `amap()` streams results as they become available. It supports asyncio and Trio. | You need concurrency and start-rate limits with result collection, and prefer to keep retry policy in your handler. |
 | Aqute | The [worker-pool API](usage.md) combines retry filters and delays, per-task success or error outcomes, synchronous or asynchronous input, and explicit shutdown. | Repeated I/O jobs need these controls together, such as an ingestion run that retries selected failures and records each terminal outcome. |
+| Broker-backed queues ([arq](https://arq-docs.helpmanual.io/), [Taskiq](https://taskiq-python.github.io/), [Dramatiq](https://dramatiq.io/), [Celery](https://docs.celeryq.dev/)) | Workers exchange tasks through a configured broker; deployment and delivery guarantees depend on the chosen system. Aqute runs in-process and needs no broker infrastructure. | Work must outlive the submitting process or run across independently deployed workers, and you can operate the broker and workers. |
 
 For infrastructure changes, retries can repeat side effects; the application must
 decide which operations are safe to repeat. For remote inference, Aqute schedules

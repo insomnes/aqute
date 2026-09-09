@@ -6,6 +6,17 @@ edit_uri: edit/main/docs/
 theme:
   name: material
   font: false
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
   features:
     - content.action.edit
 nav:
@@ -14,6 +25,8 @@ nav:
   - Streaming: streaming.md
   - Retry and progress: retry_progress.md
   - HTTP client: http_client.md
+  - LLM inference: llm_inference.md
+  - Per-caller request pool: request_pool.md
   - Manual result draining: manual_drain.md
   - Service shutdown: service_shutdown.md
   - Development: development.md
@@ -21,6 +34,3 @@ markdown_extensions:
   - tables
   - pymdownx.highlight
   - pymdownx.superfences
-  - pymdownx.snippets:
-      base_path: ["."]
-      check_paths: true
