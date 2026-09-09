@@ -148,6 +148,13 @@ repeat a side effect, so applications must decide whether retrying is safe.
 negative timeout prevents handler invocation. Add `AquteTaskTimeoutError` to
 `errors_to_not_retry` when timeouts must not be retried.
 
+**Unreleased:** A handler-raised `TimeoutError` retains its original type and
+message when the Aqute deadline has not expired, including when
+`task_timeout_seconds=None`. Retry filters now match that original exception.
+Previously, Aqute converted it to `AquteTaskTimeoutError`. Use `TimeoutError` in
+the filters for handler timeouts and `AquteTaskTimeoutError` for Aqute deadlines.
+Include both types to select or exclude both kinds of timeout.
+
 Import the public exception types directly from `aqute`:
 
 ```python
