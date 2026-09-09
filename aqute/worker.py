@@ -119,16 +119,10 @@ class Worker(Generic[TData, TResult]):
                 and timeout.expired()
             ):
                 exc = AquteTaskTimeoutError(f"Task {task.task_id} timed out")
-            if isinstance(exc, AquteTaskTimeoutError):
-                logger.warning(
-                    f"Worker {self.name} on {task.task_id} timed out after "
-                    f"{self.task_timeout_seconds} seconds"
-                )
-            else:
-                logger.warning(
-                    f"Worker {self.name} on {task.task_id} got error: "
-                    f"{exc.__class__}: {exc}"
-                )
+            logger.warning(
+                f"Worker {self.name} on {task.task_id} got error: "
+                f"{exc.__class__}: {exc}"
+            )
             task.error = exc
 
 
