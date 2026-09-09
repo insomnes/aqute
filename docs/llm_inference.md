@@ -8,7 +8,7 @@ it does not require a vendor SDK, credentials, or a running model server.
 ## Use in an application
 
 The checkout provides `httpx` in its development dependencies. To adapt the source
-outside the checkout, install `aqute==0.10.1` and `httpx`, and replace the endpoint,
+outside the checkout, install `aqute==0.10.3` and `httpx`, and replace the endpoint,
 model, credentials, and token estimates with your application's configuration.
 The source imports `RateLimitedError` and `retry_after_seconds` from
 `examples.http_client`; copy those definitions from the [HTTP source](http_client.md#runnable-source)

@@ -1,7 +1,7 @@
 # API and rate limits
 
-This reference covers Aqute 0.10.1 for Python 3.11+. For runnable workflows, start
-with [Choose an API](index.md#choose-an-api) and the [usage guide](usage.md).
+This reference covers Aqute 0.10.3 for Python 3.11+.
+For runnable workflows, start with [Choose an API](index.md#choose-an-api) and the [usage guide](usage.md).
 Import the engine with `from aqute import Aqute`.
 
 ## Constructor
@@ -18,9 +18,9 @@ input and output types; public methods preserve these types.
 | `result_queue` | `asyncio.Queue[AquteTask[TData, TResult]]` or `None` | `None` | Supplied result queue; its capacity also limits the internal result relay. Omission gives each capacity `workers_count`. |
 | `retry_count` | `int` | `0` | Extra attempts after the first handler call. |
 | `retry_delay` | `Callable[[int, Exception], float]` or `None` | `None` | Delay in seconds before a permitted retry; omission means zero delay. |
-| `specific_errors_to_retry` | Exception class, tuple of exception classes, or `None` | `None` | Eligible handler errors; `None` selects all caught handler errors while retry budget remains. |
+| `specific_errors_to_retry` | Exception class, tuple of exception classes, or `None` | `None` | Eligible handler errors; `None` selects all caught handler errors while retry budget remains; `()` selects none. |
 | `errors_to_not_retry` | Exception class, tuple of exception classes, or `None` | `None` | Excluded errors; takes precedence over the retry selection. |
-| `start_timeout_seconds` | `int`, `float`, or `None` | `None` | Limit on waiting for the first input after start; `None` disables the limit. |
+| `start_timeout_seconds` | `int`, `float`, or `None` | `None` | Limit on waiting for the first input after start; `None` disables the limit; prequeued inputs need no wait, even at zero or negative values. |
 | `input_task_queue_size` | `int` or `None` | `None` | Pending input capacity; `None` means `workers_count`, zero means unlimited. |
 | `use_priority_queue` | `bool` | `False` | Order admitted pending tasks by increasing `task_priority`. |
 | `task_timeout_seconds` | `int`, `float`, or `None` | `None` | Timeout per handler attempt, excluding limiter and retry waits; `None` disables it. |
@@ -152,6 +152,9 @@ For lower-level worker queues,
 `aqute.worker.Foreman` exposes `start()`, `add_task(AquteTask(...))`,
 `get_handled_task()`, `finalize()`, and `stop()`. Consume finite result queues while
 waiting for `finalize()`.
+
+Cancellation of `Foreman.add_task()` can race completed queue admission. It does
+not prove that the task was not accepted or prevent its processing.
 
 Inspect `error` and `result` on tasks returned directly by `Foreman`. It does not
 set `success`; `unwrap()` requires the engine's terminal success flag to return

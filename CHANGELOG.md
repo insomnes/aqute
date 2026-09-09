@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.10.3 - 2026-09-09
+
+- Raise `AquteError` from `finish()` and `iter_results()` when processing is
+  independently cancelled. Preserve caller cancellation and cleanup deadlines.
+- Process prequeued inputs with zero or negative `start_timeout_seconds`;
+  the timeout applies only while waiting for the first input.
+- Treat `specific_errors_to_retry=()` as selecting no retryable errors.
+- Remove the unused, importable `aqute.task.END_MARKER` sentinel and its worker
+  shutdown path.
+- Clarify that cancellation of `Aqute.add_task()` or `Foreman.add_task()` can
+  race completed admission and does not prove that the task was not accepted.
+
+## 0.10.2 - 2026-09-09
 
 - Keep generated task IDs distinct during concurrent submissions waiting for input
   capacity. Cancelled submissions can leave gaps in the per-run sequence.

@@ -8,7 +8,7 @@ from typing import Any, Generic
 
 from aqute.errors import AquteError, AquteTaskTimeoutError
 from aqute.ratelimiter import RateLimiter
-from aqute.task import END_MARKER, AquteTask, AquteTaskQueueType, TData, TResult
+from aqute.task import AquteTask, AquteTaskQueueType, TData, TResult
 
 logger = logging.getLogger("aqute.worker")
 
@@ -57,8 +57,6 @@ class Worker(Generic[TData, TResult]):
             self._counters.running += 1
             try:
                 logger.debug("Worker %s got task %s", self.name, task.task_id)
-                if task.data is END_MARKER:
-                    return
                 await self.handle_task(task)
             except asyncio.CancelledError as exc:
                 worker = asyncio.current_task()
@@ -214,6 +212,9 @@ class Foreman(Generic[TData, TResult]):
     async def add_task(self, task: AquteTask[TData, TResult]) -> None:
         """
         Adds a specified task to the input queue for processing.
+
+        Cancellation can race completed admission. A cancelled submission does
+        not prove that the task was not accepted or prevent its processing.
 
         Args:
             task: The task to be processed.

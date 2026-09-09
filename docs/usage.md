@@ -2,7 +2,7 @@
 
 <span id="for-coding-agents"></span>
 
-This guide covers the 0.10.1 API for Python 3.11+. Start with
+This guide covers the 0.10.3 API for Python 3.11+. Start with
 [installation](index.md#installation) and [Choose an API](index.md#choose-an-api).
 See the [API reference](reference.md) for parameter types and defaults, or the
 [changelog](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md) for migration
@@ -131,7 +131,7 @@ Handler exceptions derived from `Exception` become `AquteTask.error` values.
 `retry_count` specifies extra attempts; its default is zero.
 `specific_errors_to_retry` selects exception types.
 When omitted, it defaults to `None`: every caught handler error is eligible while
-the retry budget remains.
+the retry budget remains. An empty tuple, `()`, selects no errors.
 `errors_to_not_retry` excludes types and takes precedence when both filters match.
 
 `retry_delay(failed_attempt, error)` optionally returns finite, nonnegative seconds.
@@ -145,7 +145,7 @@ inside the worker `ExceptionGroup`. Callback errors and limiter failures also st
 the worker group and propagate; they are not handler error values. A retry can
 repeat a side effect, so applications must decide whether retrying is safe.
 
-**Unreleased:** If an awaited operation propagates `asyncio.CancelledError`
+**Since 0.10.2:** If an awaited operation propagates `asyncio.CancelledError`
 without a cancellation request on the worker, the run fails with an
 `ExceptionGroup` containing `AquteError`. For example, this occurs when a handler
 awaits an independently cancelled `asyncio.Future`. The cancelled work is not
@@ -158,7 +158,7 @@ by the caller keeps its existing behavior.
 negative timeout prevents handler invocation. Add `AquteTaskTimeoutError` to
 `errors_to_not_retry` when timeouts must not be retried.
 
-**Unreleased:** A handler-raised `TimeoutError` retains its original type and
+**Since 0.10.2:** A handler-raised `TimeoutError` retains its original type and
 message when the Aqute deadline has not expired, including when
 `task_timeout_seconds=None`. Retry filters now match that original exception.
 Previously, Aqute converted it to `AquteTaskTimeoutError`. Use `TimeoutError` in
@@ -172,12 +172,24 @@ from aqute import AquteError, AquteTaskTimeoutError, AquteTooManyTasksFailedErro
 ```
 
 `start_timeout_seconds` limits waiting for the first input after start, including
-an asynchronous source's first item. `total_failed_tasks_limit` stops processing
+an asynchronous source's first item. Prequeued inputs do not wait, even at zero
+or negative values. If the startup wait begins before any input arrives or
+completion is signalled, it remains subject to the timeout. Empty input requires
+no wait when `finish()` or `finish_submitting()` signals completion before that
+wait begins.
+
+`total_failed_tasks_limit` stops processing
 with `AquteTooManyTasksFailedError` when collected terminal failures reach the limit.
 The limit is inclusive: `total_failed_tasks_limit=1` stops on the first collected
 terminal failure, after publishing that task's result. The background run task
 raises the error and cancels remaining workers; cancelled handlers do not produce
 terminal results.
+
+**Since 0.10.3:** `finish()` and `iter_results()` raise `AquteError` if processing
+is independently cancelled, for example by another caller invoking `stop()`.
+Cancellation of the consuming caller still propagates as `CancelledError`;
+an expired outer `asyncio.timeout` still raises `TimeoutError`, including during
+cooperative cleanup.
 
 In the manual API, `finish()` propagates the run error. `get_result()` returns
 already-published results first, then propagates the error when the queue is empty
@@ -222,8 +234,13 @@ After start, a full input queue makes `add_task()` wait for capacity;
 it raises `AquteError` if the run completes normally before admission.
 Default capacity `workers_count` can therefore block service callers
 inside submission, so bound concurrent callers or apply an admission timeout.
+Cancellation or a timeout can race completed admission: it does not prove that
+the task was not accepted. Aqute counts accepted work even when the submitting
+caller is cancelled. Retrying a cancelled submission can duplicate processing;
+caller-supplied task IDs do not deduplicate work. The same admission ambiguity
+applies to `Foreman.add_task()`.
 
-**Unreleased:** Concurrent `add_task()` calls with omitted or empty IDs receive
+**Since 0.10.2:** Concurrent `add_task()` calls with omitted or empty IDs receive
 distinct generated IDs within one run, including while waiting for input capacity.
 Cancelled submissions can leave gaps. `stop()` resets the sequence, so later runs
 can reuse generated IDs. Caller-supplied IDs are not checked for duplicates or

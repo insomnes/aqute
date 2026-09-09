@@ -66,12 +66,13 @@ class Aqute(Generic[TData, TResult]):
                 exception to finite, nonnegative seconds. Defaults to zero delay.
                 The delay occupies a worker but is outside the handler timeout.
             specific_errors_to_retry (optional): Exceptions triggering
-                task retry. Defaults to None, so every error is retried.
+                task retry. None selects every error; an empty tuple selects none.
             errors_to_not_retry (optional): Exceptions that should not be
                 retried. This option takes precedence over specific_errors_to_retry.
                 Defaults to None.
             start_timeout_seconds (optional): Wait time before failing after start
-                if no tasks were added. Defaults to None.
+                if no tasks were added. Prequeued tasks do not wait, even when
+                this value is zero or negative. Defaults to None.
             input_task_queue_size (optional): Maximum pending input items.
                 None (the default) uses workers_count for all runs. Positive
                 values set an explicit capacity; 0 is unlimited. Start processing
@@ -181,7 +182,8 @@ class Aqute(Generic[TData, TResult]):
         task is active, this method waits until it completes.
 
         Raises:
-            AquteError: If the task hasn't been initiated.
+            AquteError: If the task has not been initiated or its load was
+                independently cancelled. Caller cancellation still propagates.
             AquteTooManyTasksFailedError: If there was limit on failed tasks
                 and it was reached.
 
@@ -192,7 +194,15 @@ class Aqute(Generic[TData, TResult]):
         if self.aiotask_of_run_load is None:
             raise AquteError("Cannot wait for not started load")
         self.finish_submitting()
-        await self.aiotask_of_run_load
+        caller = asyncio.current_task()
+        assert caller is not None
+        cancelling = caller.cancelling()
+        try:
+            await self.aiotask_of_run_load
+        except asyncio.CancelledError as exc:
+            if caller.cancelling() > cancelling:
+                raise
+            raise AquteError("Load was cancelled; call stop first") from exc
         logger.debug("Aqute load task ended")
 
     async def run(self) -> None:
@@ -217,6 +227,9 @@ class Aqute(Generic[TData, TResult]):
         Within one run, omitted or empty IDs receive distinct generated values.
         Caller-supplied IDs are not checked for collisions. The task is forwarded
         to the foreman for execution and the count of added tasks is incremented.
+        Cancellation can race completed admission: a cancelled submission does
+        not prove that the task was not accepted. Admission accounting includes
+        accepted work, even when the submitting caller is cancelled.
 
         Args:
             task_data: Data for the task to process.
@@ -308,6 +321,9 @@ class Aqute(Generic[TData, TResult]):
         """
         Return a context that owns a single-use, lazy result iterator.
 
+        Do not call get_result() or drain_results() during iteration: the iterator
+        owns result consumption.
+
         Produce input concurrently with processing and yield terminal results
         in completion order. Finite input and result queues bound buffering.
         Use ``async with engine.iter_results(items) as results``. First iteration
@@ -316,6 +332,8 @@ class Aqute(Generic[TData, TResult]):
         consumer exception, or cancellation. Cleanup requires cooperative sources
         and handlers. Drain retained results before reusing the engine.
         Source exceptions propagate after cancelling owned processing.
+        Independently cancelled processing raises AquteError. Cancellation of
+        the consuming caller still propagates, including during cleanup.
 
         Omitted queue limits use workers_count items for pending input, results,
         and the internal result relay. With finite input capacity I, result
@@ -349,7 +367,7 @@ class Aqute(Generic[TData, TResult]):
             self._iter_results(tasks_data, submission_batch_size=submission_batch_size)
         )
 
-    async def _iter_results(
+    async def _iter_results(  # noqa: C901 - keep load cancellation checks local
         self,
         tasks_data: Iterable[TData] | AsyncIterable[TData],
         *,
@@ -376,11 +394,21 @@ class Aqute(Generic[TData, TResult]):
                             yield self.result_queue.get_nowait()
                             continue
                         if load.done():
+                            if load.cancelled():
+                                raise AquteError("Load was cancelled; call stop first")
                             await load
                         changed.clear()
                         await changed.wait()
                     await producer
-                    await load
+                    caller = asyncio.current_task()
+                    assert caller is not None
+                    cancelling = caller.cancelling()
+                    try:
+                        await load
+                    except asyncio.CancelledError as exc:
+                        if caller.cancelling() > cancelling:
+                            raise
+                        raise AquteError("Load was cancelled; call stop first") from exc
                 finally:
                     producer.cancel()
                     caller = asyncio.current_task()
@@ -574,8 +602,6 @@ class Aqute(Generic[TData, TResult]):
             return
 
         try:
-            if self._start_timeout_seconds <= 0:
-                raise TimeoutError
             async with asyncio.timeout(self._start_timeout_seconds):
                 while (
                     self._added_tasks_count == self._finished_tasks_count
@@ -627,7 +653,7 @@ class Aqute(Generic[TData, TResult]):
         ):
             return False
 
-        if self._specific_errors_to_retry and not isinstance(
+        if self._specific_errors_to_retry is not None and not isinstance(
             task.error, self._specific_errors_to_retry
         ):
             return False
