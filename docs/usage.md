@@ -285,8 +285,9 @@ Custom IDs use `task_id`; omitted IDs are generated. `drain_results()` removes c
 `get_result()` raises `AquteError` after normal completion when no results remain.
 While the run is active and the result queue is empty, `get_result()` waits for
 a result or run completion, with no timeout of its own.
-After start, a full input queue makes `add_task()` wait for capacity or run
-completion; default capacity `workers_count` can therefore block service callers
+After start, a full input queue makes `add_task()` wait for capacity;
+it raises `AquteError` if the run completes normally before admission.
+Default capacity `workers_count` can therefore block service callers
 inside submission, so bound concurrent callers or apply an admission timeout.
 
 Results use one shared queue. `get_result()` returns the next available result,
