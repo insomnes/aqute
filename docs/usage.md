@@ -41,7 +41,8 @@ same context internally and returns a list in input order.
 
 Context exit waits for the producer and workers to stop after full consumption,
 an early `break`, a consumer exception, a source exception, or cancellation.
-Source and consumer errors propagate; handler errors remain task error values.
+Source and consumer errors propagate; handler exceptions derived from `Exception`
+remain task error values.
 Caller cancellation, including a deadline during cleanup, propagates through the
 existing cooperative cleanup path. Cleanup requires sources, handlers, and rate
 limiters to cooperate with cancellation; it cannot forcibly terminate them.
@@ -126,8 +127,9 @@ but retains more inputs.
 
 ## Errors, retries, and timeouts
 
-Handler exceptions become `AquteTask.error` values. `retry_count` specifies extra
-attempts; its default is zero. `specific_errors_to_retry` selects exception types.
+Handler exceptions derived from `Exception` become `AquteTask.error` values.
+`retry_count` specifies extra attempts; its default is zero.
+`specific_errors_to_retry` selects exception types.
 When omitted, it defaults to `None`: every caught handler error is eligible while
 the retry budget remains.
 `errors_to_not_retry` excludes types and takes precedence when both filters match.
@@ -142,6 +144,14 @@ continue. Cancellation interrupts the delay. Invalid delays raise `ValueError`
 inside the worker `ExceptionGroup`. Callback errors and limiter failures also stop
 the worker group and propagate; they are not handler error values. A retry can
 repeat a side effect, so applications must decide whether retrying is safe.
+
+**Unreleased:** If an awaited operation propagates `asyncio.CancelledError`
+without a cancellation request on the worker, the run fails with an
+`ExceptionGroup` containing `AquteError`. For example, this occurs when a handler
+awaits an independently cancelled `asyncio.Future`. The cancelled work is not
+retried and produces no terminal task result. Aqute cancels sibling workers and
+waits for their cooperative cleanup. Cancellation requested through `stop()` or
+by the caller keeps its existing behavior.
 
 `task_timeout_seconds` limits each handler attempt and produces
 `AquteTaskTimeoutError`. Rate-limit and retry-delay waits are excluded. A zero or
