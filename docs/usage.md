@@ -50,6 +50,7 @@ including custom iterators with `close()` or `aclose()` methods.
 
 Use each context and iterator once, and consume results inside the context.
 For one result at a time, call `await anext(results)` on the yielded iterator.
+Do not call `aclose()` on the context; leave the `async with` block instead.
 Use the engine sequentially. Before reusing it with a helper after partial
 consumption, retrieve all retained results. Both helpers raise `AquteError` when
 results remain in the result queue, including a caller-supplied queue. Rejection
