@@ -99,25 +99,26 @@ class Worker(Generic[TData, TResult]):
     ) -> None:
         if self.rate_limiter:
             await self.rate_limiter.acquire(name=self.name, task=task)
+        timeout: asyncio.Timeout | None = None
         try:
             if self.task_timeout_seconds is not None and self.task_timeout_seconds <= 0:
-                raise TimeoutError
+                raise AquteTaskTimeoutError(f"Task {task.task_id} timed out")
             if self.task_timeout_seconds is None:
                 if is_retry:
                     self._counters.retries += 1
                 task.result = await self.handle_coro(task.data)
             else:
-                async with asyncio.timeout(self.task_timeout_seconds):
+                async with asyncio.timeout(self.task_timeout_seconds) as timeout:
                     if is_retry:
                         self._counters.retries += 1
                     task.result = await self.handle_coro(task.data)
-        except TimeoutError:
-            logger.warning(
-                f"Worker {self.name} on {task.task_id} timed out after "
-                f"{self.task_timeout_seconds} seconds"
-            )
-            task.error = AquteTaskTimeoutError(f"Task {task.task_id} timed out")
         except Exception as exc:
+            if (
+                isinstance(exc, TimeoutError)
+                and timeout is not None
+                and timeout.expired()
+            ):
+                exc = AquteTaskTimeoutError(f"Task {task.task_id} timed out")
             logger.warning(
                 f"Worker {self.name} on {task.task_id} got error: "
                 f"{exc.__class__}: {exc}"

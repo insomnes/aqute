@@ -4,6 +4,11 @@
 
 - Keep generated task IDs distinct during concurrent submissions waiting for input
   capacity. Cancelled submissions can leave gaps in the per-run sequence.
+- Preserve handler-raised `TimeoutError` when the Aqute deadline has not expired,
+  including with no deadline. Previously, Aqute converted it to
+  `AquteTaskTimeoutError`; retry filters now match the original exception.
+  Use `TimeoutError` for handler timeouts and `AquteTaskTimeoutError` for Aqute
+  deadlines, or include both types to select or exclude both kinds of timeout.
 
 ## 0.10.1 - 2026-09-09
 
