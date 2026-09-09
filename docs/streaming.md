@@ -2,7 +2,7 @@
 
 Use streaming to process results as they complete. Start with a fresh engine and
 consume each terminal task inside the managed context. For an ordered finite batch
-or continuous manual submission, see the [API selector](usage.md#for-coding-agents).
+or continuous manual submission, see the [API selector](index.md#choose-an-api).
 
 From a development checkout, run this finite example offline:
 

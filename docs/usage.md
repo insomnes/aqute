@@ -1,7 +1,12 @@
 # Usage
 
-This page covers the 0.10.0 API for Python 3.11+. Follow the
-[installation instructions](index.md#installation).
+<span id="for-coding-agents"></span>
+
+This guide covers the 0.10.1 API for Python 3.11+. Start with
+[installation](index.md#installation) and [Choose an API](index.md#choose-an-api).
+See the [API reference](reference.md) for parameter types and defaults, or the
+[changelog](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md) for migration
+from 0.9.x.
 
 ## Task results
 
@@ -44,6 +49,7 @@ Aqute closes started generator sources. Callers own other source resources,
 including custom iterators with `close()` or `aclose()` methods.
 
 Use each context and iterator once, and consume results inside the context.
+For one result at a time, call `await anext(results)` on the yielded iterator.
 Use the engine sequentially. Before reusing it with a helper after partial
 consumption, retrieve all retained results. Both helpers raise `AquteError` when
 results remain in the result queue, including a caller-supplied queue. Rejection
@@ -59,7 +65,11 @@ new_results = await engine.process_all(new_items)
 The new helper run returns only its own results. Use a fresh engine when old
 results must remain in their original queue. Helpers require a fresh or stopped
 engine with no pending manual tasks. Conflicting setup raises `AquteError` before
-consuming input. Use the manual API for externally managed producers and consumers.
+consuming input. Preloading with `add_task()` before either helper is rejected.
+Use the manual API to finish such work while draining results, then stop the
+engine before using a helper. Use a fresh engine for each helper run when reuse
+is unnecessary. Helpers accept synchronous and asynchronous inputs; recreate an
+exhausted generator before repeating a run.
 
 ## Buffering
 
@@ -86,157 +96,32 @@ source or caller and the growing list returned by `process_all()`. A queue size 
 zero is unlimited. Multiple independent producer calls can each hold an item
 while waiting for admission; the formula above assumes one producer.
 
-### Queue-default migration
-
-This is a pre-1.0 behavior break for manual runs. Omitted limits now use capacity
-`workers_count`, just like helper runs. Existing positive capacities and explicit
-zero limits keep their meaning. Manual runs using the defaults must consume
-results concurrently with submission and processing.
-
-To preserve pre-submit-then-run or other unlimited buffering, set both limits
-explicitly:
-
-```python
-engine = Aqute(
-    handle,
-    workers_count=32,
-    input_task_queue_size=0,
-    result_queue=asyncio.Queue(0),
-)
-```
-
-Pre-submit-then-run needs both queues unlimited when all inputs are submitted
-before starting and results are drained after completion. A full input queue
-before `start()` now raises `AquteError` from `add_task()` instead of waiting
-indefinitely. Start processing first or opt into unlimited input explicitly.
-
-Run-then-drain starts processing before submission and needs only
-`result_queue=asyncio.Queue(0)`; the input queue can keep its default capacity.
-See the [manual drain example](manual_drain.md). With finite result queues and no
-concurrent consumer, `add_task()` or `finish()` can wait indefinitely. Aqute does
-not detect this arrangement.
-
-Helpers now reject pending manual tasks, so preloading with `add_task()` before
-`process_all()` or `iter_results()` raises `AquteError`. Follow
-[manual processing and shutdown](#manual-processing-and-shutdown) to finish the
-work while draining results, then stop the engine before using a helper.
-Alternatively, use a separate fresh engine for the helper.
+For manual flows without a concurrent result consumer, see
+[manual buffering](#manual-buffering). The
+[changelog](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md) describes
+migration from the older unlimited defaults.
 
 ## Concurrency, rate, and priority
 
-`workers_count` limits occupied workers. It does not specify requests per second.
-Use `rate_limiter` to control attempt rate. Every retry acquires the limiter again.
-Available implementations are in `aqute.ratelimiter`:
+`workers_count` limits occupied workers; it does not specify requests per second.
+Set `rate_limiter` to control attempt admission. Every retry acquires it again.
+A waiting attempt occupies its worker, including rate-limit and retry-delay waits.
+CPU-heavy or blocking handlers block the event loop. For synchronous I/O, see
+[thread offloading and its limits](reference.md#synchronous-io-handlers).
 
-- `TokenBucketRateLimiter` controls a shared rate, with optional bursts.
-- `SlidingRateLimiter` limits calls within a moving time window.
-- `PerWorkerRateLimiter` applies a separate token bucket to each worker.
-- `RandomizedIntervalRateLimiter` adds bounded random delays after rolling-cap waits.
-- `PausableRateLimiter` wraps any limiter with a shared monotonic pause.
+Use `TokenBucketRateLimiter(max_rate=N)` to space grants by at least `1 / N`
+seconds, with one initial grant available immediately. To pause all workers after
+throttling, wrap a limiter in `PausableRateLimiter` and call `pause_for()` inside
+the handler before raising a retryable error. Pauses delay admission, leave
+already admitted requests running, and can cause delayed grants to resume together.
+See [rate limiters](reference.md#rate-limiters) for imports, periods, bursts,
+shared pauses, and custom limiters.
 
-For `TokenBucketRateLimiter` and `SlidingRateLimiter`, `max_rate` applies over
-`time_period` seconds; the default period is one second. To allow five grants
-in each rolling 0.2-second window:
-
-```python
-from aqute.ratelimiter import SlidingRateLimiter
-
-limiter = SlidingRateLimiter(max_rate=5, time_period=0.2)
-```
-
-The sliding limiter can grant all five permits together. A token bucket with
-`allow_burst=False` (the default) instead spaces grants by
-`time_period / max_rate` seconds.
-These limits apply to limiter grants; a pause wrapper can delay handler starts
-after a grant, as described below.
-
-To pause attempt admission after service throttling, share one wrapper:
-
-```python
-from aqute.ratelimiter import PausableRateLimiter, TokenBucketRateLimiter
-
-limiter = PausableRateLimiter(TokenBucketRateLimiter(max_rate=10))
-engine = Aqute(handle, workers_count=4, rate_limiter=limiter)
-# Inside handle(), before raising a retryable throttle error:
-limiter.pause_for(2.0)
-```
-
-Call `pause_for()` in the handler before raising the retryable throttle error;
-the result consumer receives only terminal outcomes and cannot pause earlier retries.
-
-`pause_for(seconds)` extends the pause from `time.monotonic()` now.
-`pause_until(deadline)` takes an absolute deadline from that same clock.
-Both accept finite, nonnegative values and raise `ValueError` otherwise.
-The later deadline wins; a shorter pause cannot shorten the current one.
-Zero seconds and past deadlines add no wait. The read-only `paused_until`
-property starts at zero and retains the latest deadline after it expires.
-
-Use the wrapper on one event loop. Each `acquire()` checks the deadline in a loop
-before and after acquiring the inner limiter, including extensions set while
-either wait is active. Cancellation propagates. Requests already admitted are
-not interrupted. Inner grants delayed by a pause can resume together; the wrapper
-does not reacquire their permits or guarantee request spacing after that delay.
-
-The pause is outside `task_timeout_seconds`. A throttled attempt still consumes
-`retry_count`; select retryable errors and allow enough retries in the application.
-SDK-internal retries inside the handler multiply requests without acquiring the
-limiter again. The [HTTP example source](http_client.md#runnable-source) parses
-`Retry-After` seconds or HTTP dates in application code and applies the shared
-pause. Missing or invalid headers use a one-second fallback; past dates use zero.
-The example applies no upper bound to valid `Retry-After` delays. Apply any
-required delay cap in application code.
-
-Its offline entry point also compares eight workers processing forty URLs during
-one 300 ms throttle window, with `Retry-After: 1` and a 100-attempt/second limiter.
-The transport returns each response immediately, before the next admission.
-It logs throttled-request counts, retries, and elapsed time with and without the
-shared pause. Real requests already in flight can still return 429 after a pause;
-this controlled comparison is not a bound on their count or a throughput claim.
-
-`RandomizedIntervalRateLimiter(N, T)` grants at most `N` acquisitions in each
-rolling `T` seconds. Each acquisition waits for quota, then for its full additional
-random delay. This delay also applies at startup, with sparse traffic and after
-idle. Quota waits and event-loop scheduling can increase the total wait beyond the
-configured jitter bounds. Sustained throughput can be below `N / T`.
-
-`mean_target_multiplier` and `std_dev` describe the Gaussian input, before scaling
-and bounding. They do not specify the mean or deviation of emitted intervals.
-An independent uniform phase supplies an absolute sine scale for each acquisition.
-The same scale multiplies the Gaussian input and `lower_upper_fluctuation`, which
-moves both multiplier bounds inward. The resulting bounded multiplier converts
-to seconds through `T / N`. Use nonnegative bounds and fluctuation, with
-`2 * lower_upper_fluctuation <= upper_multiplier_bound - lower_multiplier_bound`.
-The lower bound remains an additional minimum delay even when quota is available.
-
-Independent phases replace the previous request-counter ordering while retaining
-coupled amplitude and bound modulation. Seeded sequences and startup delays change.
-This reduces conspicuous counter-linked regularity; it does not model human
-behavior or guarantee avoidance of detection. Removing the old ordering can also
-reduce throughput, even when the overall delay distribution is similar.
-
-A custom limiter implements `async acquire(name="", task=None)`. It must propagate
-cancellation. CPU-heavy or blocking work in a handler blocks the event loop;
-Aqute does not move it to threads or processes automatically.
-
-For a synchronous I/O handler, wrap the call in an async handler with
-`return await asyncio.to_thread(fn, item)`. The default executor caps its threads
-at `min(32, (cpu_count or 1) + 4)`: Python 3.11–3.12 uses `os.cpu_count()`, while
-Python 3.13+ uses `os.process_cpu_count()`. Effective concurrency can therefore be
-below `workers_count`. If needed, configure a custom `ThreadPoolExecutor(max_workers=...)`
-with `asyncio.get_running_loop().set_default_executor(executor)` before submitting
-work, and own its shutdown. See Python's [executor defaults](https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor)
-and [`to_thread`](https://docs.python.org/3/library/asyncio-task.html#asyncio.to_thread).
-Cancellation or an Aqute timeout does not stop an already running thread; retries
-can overlap the original call, so use operation-level timeouts and safe retry
-policies. Threads generally do not make CPU-bound Python work parallel under the GIL.
-
-With `use_priority_queue=True`, pass `task_priority` to `add_task()`. Lower values
-run first among admitted pending tasks. Priority does not preempt an occupied
-worker. A worker retains its task through retries.
-Only tasks currently in the input queue can be reordered. A positive
-`input_task_queue_size` bounds this set; the default capacity is `workers_count`.
-Increasing capacity lets more pending tasks compete by priority but retains more
-inputs. Priority does not order callers still waiting for admission.
+With `use_priority_queue=True`, lower `task_priority` values run first among
+pending tasks already in the input queue. Priority does not order callers still
+waiting for admission or preempt occupied workers. A worker retains its task
+through retries. Increasing input capacity lets more tasks compete by priority
+but retains more inputs.
 
 ## Errors, retries, and timeouts
 
@@ -297,12 +182,7 @@ logging.getLogger("aqute.worker").setLevel(logging.ERROR)
 This also suppresses warnings for terminal handler failures. It does not change
 retries or result delivery.
 
-The [HTTP example](http_client.md) uses one shared HTTPX client and retries
-transport errors and HTTP 429 responses. Other HTTP status failures propagate
-to its caller. Its executable
-entry point uses an offline transport; applications call `fetch_pages(urls)` for
-real requests. HTTPX is required only for this example and is included in the dev
-group. See [HTTPX's async client guide](https://www.python-httpx.org/async/).
+The [HTTP recipe](http_client.md) applies these rules to transport errors and HTTP 429.
 
 ## Manual processing and shutdown
 
@@ -341,7 +221,7 @@ call. These methods do not reject later submissions while the run still has work
 `await run()` starts processing and finishes work submitted before start.
 With finite result queues, keep the consumer running while awaiting completion.
 For pre-submit-then-run, explicitly set both queues unlimited. For run-then-drain,
-set only the result queue unlimited; see [queue-default migration](#queue-default-migration)
+set only the result queue unlimited; see [manual buffering](#manual-buffering)
 and the [manual drain example](manual_drain.md). After `run()` or `finish()`
 completes, await `stop()` before starting a helper.
 
@@ -362,14 +242,34 @@ manager or a `finally` block.
 
 Completed results remain available after `stop()`. After `await stop()`, call
 `start()` again to reuse the same engine; `stop()` resets the run task and counters.
-Drain retained results before using a helper again. For lower-level worker queues,
-`aqute.worker.Foreman` exposes `start()`, `add_task(AquteTask(...))`,
-`get_handled_task()`, `finalize()`, and `stop()`. Consume finite result queues while
-waiting for `finalize()`.
+Drain retained results before using a helper again.
 
-Inspect `error` and `result` on tasks returned directly by `Foreman`. It does not
-set `success`; `unwrap()` requires the engine's terminal success flag to return
-a value.
+<span id="queue-default-migration"></span>
+
+### Manual buffering
+
+With the default finite queues, keep a result consumer running while submitting
+and awaiting `finish()`. Without it, `add_task()` or `finish()` can wait indefinitely;
+Aqute does not detect this arrangement.
+
+For run-then-drain, start the engine before submission and set
+`result_queue=asyncio.Queue(0)`. The input queue can keep its default capacity.
+Results accumulate in memory until drained; see the [manual drain recipe](manual_drain.md).
+
+To submit every input before starting and drain results after completion, make
+both queues unlimited:
+
+```python
+engine = Aqute(
+    handle,
+    workers_count=32,
+    input_task_queue_size=0,
+    result_queue=asyncio.Queue(0),
+)
+```
+
+A full input queue before `start()` raises `AquteError`; start processing first or
+choose unlimited input explicitly. Stop producers before signalling completion.
 
 ## Progress counters
 
@@ -392,68 +292,3 @@ Helpers stop on exit. Inspect their counters during iteration, or use the manual
 flow to inspect them after `finish()` and before `stop()`. The
 [retry](retry_progress.md) and [service](service_shutdown.md) examples log these
 snapshots.
-
-## Migration from 0.9.2
-
-The old method names are removed without compatibility wrappers. Update calls
-when upgrading from 0.9.2:
-
-| 0.9.2 call | Replacement |
-| --- | --- |
-| `engine.set_all_tasks_added()` | `engine.finish_submitting()` |
-| `await engine.wait_till_end()` | `await engine.finish()` |
-| `await engine.start_and_wait()` | `await engine.run()` |
-| `await engine.get_task_result()` | `await engine.get_result()` |
-| `engine.extract_all_results()` | `engine.drain_results()` |
-| `await engine.apply_to_all(items)` | `await engine.process_all(items)` |
-| `engine.apply_to_each(items)` | `async with engine.iter_results(items) as results` |
-
-For streaming, iterate `results` inside the async context shown in
-[streaming and cleanup](#streaming-and-cleanup). The context awaits cleanup on
-exit, including after an early `break`. Call `anext(results)` on the yielded
-iterator; do not call `aclose()` on the context.
-
-`start()`, `stop()`, and `add_task()` keep their names. Generic handler input and
-result types are preserved through the public methods and the async context
-manager. For example, a handler accepting `int` makes `add_task("text")` a type
-error; this is an intentionally invalid call, not a runnable usage example.
-
-The upgrade also requires Python 3.11 or newer and uses finite buffering by
-default for helper and manual runs. See [buffering](#buffering) for explicit unlimited settings and the
-[changelog](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md) for the
-breaking changes together. The
-[0.9.x maintenance branch](https://github.com/insomnes/aqute/tree/maintenance/0.9.x)
-retains the old API for Python 3.9 and 3.10.
-
-## For coding agents
-
-For application code, [install Aqute](index.md#installation)
-with Python 3.11+ and import `Aqute` from `aqute`. The
-[canonical HTTP recipe](http_client.md) also requires `httpx`; the checkout's dev
-group includes it. For independent callers sharing a long-lived engine, start
-with the [per-caller request pool](request_pool.md). Choose the example matching
-the application's input and result flow instead of reconstructing the API.
-
-| Application need | API |
-| --- | --- |
-| A finite batch with an ordered result list | `await engine.process_all(items)` |
-| Results in completion order, with bounded buffering and incremental consumption | `async with engine.iter_results(items) as results`, then iterate `results` inside the context |
-| Continuous submission with separate producer and consumer ownership | Follow [manual processing and shutdown](#manual-processing-and-shutdown) |
-| Independent callers each waiting for their own reply from a shared engine | Use the [per-caller request pool](request_pool.md) example |
-
-- Create a fresh engine for each helper run. The stream context waits for cleanup
-  after completion, early exit, or failure. Keep the external client open around
-  that context. Aqute closes started generator sources; callers own other source
-  resources and must close them explicitly.
-- Leave queue limits omitted for finite defaults in all APIs, with each queue
-  sized to `workers_count`. Use positive capacities to override them; zero is unlimited.
-  These are item limits. Payload bytes, caller-retained data, and the complete
-  list returned by `process_all()` are outside the bound. See [buffering](#buffering).
-- Handle each terminal task explicitly. `task.unwrap()` returns the successful
-  value, including a valid `None`, or raises its error. Inspect `task.error` or
-  `task.success` when collecting partial failures. A false or `None` result does
-  not prove failure. See [task results](#task-results).
-- Select safe retry errors and a finite retry count. Every retry acquires the
-  attempt-rate limiter again; worker count controls concurrency separately.
-  Keep inputs replayable. Applications own repeated side effects, client policy,
-  and durable progress. See [retry rules](#errors-retries-and-timeouts).

@@ -20,15 +20,20 @@ theme:
   features:
     - content.action.edit
 nav:
-  - Quickstart: index.md
-  - Usage: usage.md
-  - Streaming: streaming.md
-  - Retry and progress: retry_progress.md
-  - HTTP client: http_client.md
-  - LLM inference: llm_inference.md
-  - Per-caller request pool: request_pool.md
-  - Manual result draining: manual_drain.md
-  - Service shutdown: service_shutdown.md
+  - Getting started:
+      - Quickstart: index.md
+      - Usage guide: usage.md
+  - Reference:
+      - API and rate limits: reference.md
+      - Changelog and migration: https://github.com/insomnes/aqute/blob/main/CHANGELOG.md
+  - Recipes:
+      - Streaming: streaming.md
+      - Retry and progress: retry_progress.md
+      - HTTP client: http_client.md
+      - LLM inference: llm_inference.md
+      - Per-caller request pool: request_pool.md
+      - Manual result draining: manual_drain.md
+      - Service shutdown: service_shutdown.md
   - Development: development.md
 markdown_extensions:
   - tables

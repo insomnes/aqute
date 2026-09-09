@@ -10,7 +10,7 @@ consumer runs during processing. The input queue keeps its default capacity of
 
 For bounded result buffering, consume `get_result()` concurrently instead; see
 [service shutdown](service_shutdown.md). To submit all inputs before starting,
-set `input_task_queue_size=0` as well. See [queue-default migration](usage.md#queue-default-migration).
+set `input_task_queue_size=0` as well. See [manual buffering](usage.md#manual-buffering).
 
 Lower priorities run first among pending tasks. They do not preempt active
 workers. The example sorts the returned values by task ID and runs offline.
