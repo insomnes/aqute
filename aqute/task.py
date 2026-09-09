@@ -4,9 +4,6 @@ from typing import Generic, NamedTuple, TypeVar, cast
 
 from aqute.errors import AquteError
 
-END_MARKER = object()
-
-
 TData = TypeVar("TData")
 TResult = TypeVar("TResult")
 

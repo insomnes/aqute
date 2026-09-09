@@ -1,10 +1,11 @@
 import asyncio
+import contextlib
 from typing import Any
 
 import pytest
 
 from aqute.errors import AquteTaskTimeoutError
-from aqute.task import END_MARKER, AquteTask, AquteTaskQueueType
+from aqute.task import AquteTask, AquteTaskQueueType
 from aqute.worker import Worker
 
 
@@ -58,31 +59,49 @@ async def test_worker_handle_task_error():
 
 
 @pytest.mark.asyncio
-async def test_handle_task_end():
+async def test_worker_processes_object_payload_and_cleans_up_on_cancellation():
+    """Object payloads reach the handler; cancellation awaits active task cleanup."""
     input_q: AquteTaskQueueType = asyncio.Queue()
     output_q: AquteTaskQueueType = asyncio.Queue()
+    started = asyncio.Event()
+    cleaned = asyncio.Event()
+    payload = object()
+
+    async def handler(data):
+        if data is payload:
+            return "handled object"
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0)
+            cleaned.set()
 
     worker = Worker(
         name="TestWorker",
-        handle_coro=simple_handler,
+        handle_coro=handler,
         input_q=input_q,
         output_q=output_q,
     )
-
     run_aiotask = asyncio.create_task(worker.run())
-
-    # Test that some object() do not stop us
-    task_with_object_data = AquteTask(object(), "pseudo-finish")
-    await worker.input_q.put(task_with_object_data)
-    out_task = await worker.output_q.get()
-    assert out_task is task_with_object_data
-
-    # And now we can check proper finish
-    finish_task = AquteTask(END_MARKER, "real-finish")
-    await worker.input_q.put(finish_task)
-    await run_aiotask
-    assert worker.output_q.empty()
-    assert worker.input_q.empty()
+    try:
+        async with asyncio.timeout(1):
+            await input_q.put(AquteTask(payload, "object"))
+            out_task = await output_q.get()
+            assert out_task.data is payload
+            assert out_task.result == "handled object"
+            await input_q.put(AquteTask("wait", "cancelled"))
+            await started.wait()
+            run_aiotask.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await run_aiotask
+            await input_q.join()
+        assert cleaned.is_set()
+        assert output_q.empty()
+    finally:
+        run_aiotask.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await run_aiotask
 
 
 @pytest.mark.asyncio
