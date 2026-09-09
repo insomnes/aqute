@@ -20,32 +20,110 @@ These pages and examples cover the 0.10.0 API. With Python 3.11+, install Aqute:
 python -m pip install aqute==0.10.0
 ```
 
-For the 0.9.x maintenance API, use the
-[0.9.3 quickstart](https://github.com/insomnes/aqute/blob/0.9.3/README.md#quickstart).
-
 ## Quickstart
 
-After [installing Aqute](#installation), run this
-complete example. It returns an ordered list of doubled values and propagates
-handler errors.
+After [installing Aqute](#installation), save any example below as `quickstart.py`
+and run `python quickstart.py`. The first three need only Aqute and the standard
+library. The HTTP example also needs `httpx`.
+
+The first three handlers use `await asyncio.sleep(0.1)` to simulate I/O
+without blocking the event loop. The HTTP handler awaits real network I/O.
+
+### 1. Collect a finite batch in input order
+
+Start here when the full result list fits in memory. The handler receives
+one input item per call; `workers_count=4` permits up to four concurrent handlers.
 
 ```python
 --8<-- "examples/quickstart.py"
 ```
 
-From a development checkout, run `uv run --locked python -m examples.quickstart`.
+The result is `[0, 2, 4, 6, 8, 10, 12, 14, 16, 18]`. `process_all()` returns
+completed task objects in input order. `task.unwrap()` returns the handler value
+or raises its error. Here, unwrapping happens after the whole batch finishes;
+it does not stop the batch on its first failure.
 
-`await engine.process_all(items)` returns a list in input order. For
-completion-order streaming, use `async with engine.iter_results(items) as results`
-and iterate `results` inside the context. Both helpers accept `Iterable` and
-`AsyncIterable` inputs. Each terminal `AquteTask` exposes `data`, `task_id`, `result`,
-`error`, and `success`. Inspect `error` or `success`: `None` can be a valid handler
-result.
+### 2. Record errors and continue
 
-See [usage](usage.md) for buffering, cleanup, retry, timeout, and compatibility
-contracts. The executable examples cover [streaming](streaming.md),
-[bounded HTTP processing](http_client.md), [manual result draining](manual_drain.md),
-and [service shutdown](service_shutdown.md).
+Inspect `task.error` when one bad item must not prevent you from using the
+other results. This example uses local conversion to make a failure reproducible.
+
+```python
+--8<-- "examples/quickstart_errors.py"
+```
+
+This logs ports `443` and `8080`, plus a failure for `"invalid"`. Handler
+failures are stored on completed tasks; retries are disabled by default.
+Check `error` or `success`, not whether `result` is `None`: a successful handler
+can return `None`. Input-source and engine errors can still raise from a helper.
+
+### 3. Consume a stream and stop early
+
+Use `iter_results()` to consume results as they complete without collecting
+the full output. This example takes an asynchronous input source and stops
+after three results.
+
+```python
+--8<-- "examples/streaming.py"
+```
+
+Results arrive in completion order, which can differ from input order.
+Leaving `async with` awaits producer and worker cleanup, including after `break`
+or an exception. Sources and handlers must cooperate with cancellation.
+Some additional items may already have started or finished before the break;
+stopping does not undo their side effects.
+
+Both helpers accept synchronous and asynchronous inputs. Each queue defaults to
+`workers_count` items. Queue limits bound item counts, not payload bytes or
+results retained by your code. `process_all()` still retains the full result list.
+
+### 4. Fetch URLs with rate limits and retries
+
+Install the optional HTTP client, then run this standalone example. It makes
+real GET requests; replace `urls` with your endpoints.
+
+```bash
+python -m pip install aqute==0.10.0 httpx
+```
+
+Keep one client open around the managed result stream so workers finish cleanup
+before their connections close.
+
+```python
+--8<-- "examples/quickstart_http.py"
+```
+
+`workers_count=4` limits concurrent handlers. The limiter spaces attempt
+starts by at least 0.2 seconds, including retries. `retry_count=2` allows at most
+three attempts per URL, with a fixed 0.5-second delay before each retry.
+HTTPX applies its five-second timeout to network operations, not to the entire
+batch or retry sequence.
+
+Only `httpx.TransportError` failures are retried. HTTP status errors, including
+429 and 503, are logged as terminal failures and processing continues. Choose
+retryable errors and operations for your service; retries can repeat side effects.
+HTTPX reads each response body into memory even though this example returns only
+the status code.
+
+For HTTP 429 and `Retry-After` handling, see the [shared-pause HTTP recipe](http_client.md).
+See [usage](usage.md) for retry filters, timeout contracts, queue overrides,
+and manual processing. Manual runs must consume results concurrently with the
+default finite queues.
+
+Both helpers accept `submission_batch_size` (default `1`). Larger batches can
+improve throughput for small tasks at the cost of result latency. Handlers still
+receive one item per call; configure worker concurrency and queue limits separately.
+
+From a development checkout, run the dependency-free examples directly:
+
+```bash
+uv run --locked python -m examples.quickstart
+uv run --locked python -m examples.quickstart_errors
+uv run --locked python -m examples.streaming
+```
+
+`uv run --locked python -m examples.quickstart_http` makes real network requests.
+The HTTP recipe below provides a separate offline example.
 
 ## Bounded HTTP processing
 

@@ -6,8 +6,6 @@ selected retries, and incremental result consumption.
 
 This recipe uses the 0.10.0 API for Python 3.11+. Follow the
 [installation instructions](index.md#installation).
-For the 0.9.x maintenance API, use the
-[0.9.3 quickstart](https://github.com/insomnes/aqute/blob/0.9.3/README.md#quickstart).
 
 From a development checkout, run the example offline:
 

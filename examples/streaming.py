@@ -18,6 +18,7 @@ async def main() -> int:
             logger.info("Source closed")
 
     async def handle(value: int) -> int:
+        await asyncio.sleep(0.1)  # Simulate asynchronous I/O.
         return value * 2
 
     engine = Aqute(handle, workers_count=3)

@@ -7,6 +7,7 @@ from aqute import Aqute
 
 
 async def handle(value: int) -> int:
+    await asyncio.sleep(0.1)  # Simulate asynchronous I/O.
     return value * 2
 
 
