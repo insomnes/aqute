@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Keep generated task IDs distinct during concurrent submissions waiting for input
+  capacity. Cancelled submissions can leave gaps in the per-run sequence.
+
 ## 0.10.1 - 2026-09-09
 
 - Fix cancelled submissions to a full input queue leaving later results

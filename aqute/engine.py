@@ -214,20 +214,21 @@ class Aqute(Generic[TData, TResult]):
         """
         Asynchronously adds a new task for processing.
 
-        Generates a unique task_id if one isn't provided. The task is then
-        forwarded to the foreman for execution and the count of added tasks is
-        incremented.
+        Within one run, omitted or empty IDs receive distinct generated values.
+        Caller-supplied IDs are not checked for collisions. The task is forwarded
+        to the foreman for execution and the count of added tasks is incremented.
 
         Args:
             task_data: Data for the task to process.
-            task_id (optional): Identifier for the task. If not provided, it's
+            task_id (optional): Identifier for the task. If omitted or empty, it's
                 generated from a per-run sequence before waiting for input capacity.
                 Cancelled submissions can leave gaps in this sequence.
+                stop() resets the sequence, so later runs can reuse generated IDs.
             task_priority (optional): Priority of the task used if priority queue is
                 enabled. Lower means more prior task. Defaults to 1_000_000.
 
         Returns:
-            The unique task_id associated with the added task.
+            The task_id associated with the added task.
 
         Raises:
             AquteError: If the input queue is full before start(). Start processing

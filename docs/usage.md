@@ -196,7 +196,8 @@ do not `await engine.start()` before submitting input. The
 Start workers before filling a bounded input queue; otherwise `add_task()` raises
 `AquteError` when the input queue is already full. With default limits, submit with
 `await add_task(data)` and consume results concurrently with `await get_result()`.
-Custom IDs use `task_id`; omitted IDs are generated. `drain_results()` removes currently available results without waiting.
+Custom IDs use `task_id`; omitted IDs are generated.
+`drain_results()` removes currently available results without waiting.
 `get_result()` raises `AquteError` after normal completion when no results remain.
 While the run is active and the result queue is empty, `get_result()` waits for
 a result or run completion, with no timeout of its own.
@@ -204,6 +205,12 @@ After start, a full input queue makes `add_task()` wait for capacity;
 it raises `AquteError` if the run completes normally before admission.
 Default capacity `workers_count` can therefore block service callers
 inside submission, so bound concurrent callers or apply an admission timeout.
+
+**Unreleased:** Concurrent `add_task()` calls with omitted or empty IDs receive
+distinct generated IDs within one run, including while waiting for input capacity.
+Cancelled submissions can leave gaps. `stop()` resets the sequence, so later runs
+can reuse generated IDs. Caller-supplied IDs are not checked for duplicates or
+collisions with generated IDs.
 
 Results use one shared queue. `get_result()` returns the next available result,
 not necessarily the result of the caller's last `add_task()`. For per-caller
