@@ -42,8 +42,11 @@ protocol in application code. Its cost callback reads `task.data` and reserves
 `estimated_input_tokens + max_tokens` before every attempt, including retries.
 The bucket starts full, refills continuously at 600 tokens per minute, and holds
 at most 600 tokens. One request's positive estimated cost must fit that capacity;
-an invalid cost raises `ValueError` and stops the run. Initial bursts are possible:
-this token bucket does not enforce a strict rolling-minute ceiling.
+an invalid cost raises `ValueError`. Through Aqute, it stops the run inside the
+worker `ExceptionGroup`; see [limiter failures](usage.md#errors-retries-and-timeouts).
+Initial bursts are possible: a full bucket can admit up to 1,200 estimated tokens
+in its first minute (600 initially plus 600 refilled). This token bucket does not
+enforce a strict rolling-minute ceiling.
 
 This is an **upper-bound estimate without refund**, conditional on the input
 estimate covering the actual input and `max_tokens` bounding the counted output.
@@ -96,7 +99,9 @@ and include the model and relevant request configuration in that key. A crash
 after inference but before persistence can repeat a request; this example does
 not provide exactly-once execution or a durable queue. Application checkpoints
 also retain data outside Aqute's queue bounds. Each batch creates a fresh limiter,
-so restarting a batch resets the local budget and shared pause.
+so restarting a batch resets the local budget and shared pause. Frequent short
+batches can therefore exceed the intended aggregate budget; share a limiter
+across batches in an application that needs continuous admission accounting.
 
 The managed result stream waits for producer and worker cleanup before the HTTP
 client closes. This requires cooperative cancellation. The example buffers each

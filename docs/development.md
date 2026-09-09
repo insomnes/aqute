@@ -13,6 +13,7 @@ uv run --locked python -m examples.quickstart
 uv run --locked python -m examples.streaming
 uv run --locked python -m examples.retry_progress
 uv run --locked python -m examples.http_client
+uv run --locked python -m examples.llm_inference
 uv run --locked python -m examples.manual_drain
 uv run --locked python -m examples.service_shutdown
 ```
@@ -20,7 +21,8 @@ uv run --locked python -m examples.service_shutdown
 `make check` runs Ruff formatting and lint checks, ty, pytest with coverage, and a
 strict documentation build.
 The example tests verify returned values, failures, and cleanup. Entrypoint checks
-execute `quickstart`, `streaming`, `retry_progress`, `http_client`, and `manual_drain`.
+execute `quickstart`, `streaming`, `retry_progress`, `http_client`, `llm_inference`,
+and `manual_drain`.
 Commands use `uv.lock`; update dependencies with `uv lock --upgrade` and verify them with
 `make check`. CI tests Python 3.11, 3.12, 3.13, and 3.14.
 
