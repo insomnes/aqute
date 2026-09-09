@@ -298,6 +298,8 @@ application-owned `asyncio.Future`. Register the future under a unique ID before
 submission. The application owns cancellation and cleanup of these futures,
 including submission failures and shutdown. Check `task.success` or use
 `task.unwrap()` when delivering results; a successful result can be `None`.
+The runnable [per-caller request pool](request_pool.md) shows this routing pattern,
+caller cancellation, and an engine that stays open for later requests.
 
 `finish_submitting()` signals that input submission is complete. `await finish()`
 also sends that signal and waits for processing. Stop producers before either
@@ -391,14 +393,16 @@ retains the old API for Python 3.9 and 3.10.
 For application code, [install Aqute](index.md#installation)
 with Python 3.11+ and import `Aqute` from `aqute`. The
 [canonical HTTP recipe](http_client.md) also requires `httpx`; the checkout's dev
-group includes it. Adapt that runnable source instead of reconstructing the API
-from older examples.
+group includes it. For independent callers sharing a long-lived engine, start
+with the [per-caller request pool](request_pool.md). Choose the example matching
+the application's input and result flow instead of reconstructing the API.
 
 | Application need | API |
 | --- | --- |
 | A finite batch with an ordered result list | `await engine.process_all(items)` |
 | Results in completion order, with bounded buffering and incremental consumption | `async with engine.iter_results(items) as results`, then iterate `results` inside the context |
 | Continuous submission with separate producer and consumer ownership | Follow [manual processing and shutdown](#manual-processing-and-shutdown) |
+| Independent callers each waiting for their own reply from a shared engine | Use the [per-caller request pool](request_pool.md) example |
 
 - Create a fresh engine for each helper run. The stream context waits for cleanup
   after completion, early exit, or failure. Keep the external client open around

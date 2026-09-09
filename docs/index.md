@@ -281,6 +281,8 @@ stream with finite queue defaults. `fetch_pages()` returns a count instead of
 retaining every body. Queues bound items, not payload bytes or application data.
 The same source provides an explicit callable path for real requests.
 
+For independent callers awaiting their own replies, see the
+[per-caller request pool](request_pool.md).
 See [For coding agents](usage.md#for-coding-agents) for helper selection and
 application ownership rules.
 

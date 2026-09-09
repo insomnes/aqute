@@ -282,6 +282,7 @@ retries, shutdown, counters, and migration from 0.9.2. The
 [changelog](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md) collects the breaking changes and method renames. Full examples cover
 [streaming](https://insomnes.github.io/aqute/streaming/), [bounded HTTP processing](https://insomnes.github.io/aqute/http_client/),
 [manual result draining](https://insomnes.github.io/aqute/manual_drain/),
+[per-caller request pools](https://insomnes.github.io/aqute/request_pool/),
 and [service shutdown](https://insomnes.github.io/aqute/service_shutdown/).
 
 The [documentation source](https://github.com/insomnes/aqute/blob/main/docs/index.md)

@@ -18,6 +18,7 @@ from examples import http_client, retry_progress, service_shutdown, streaming
         ("retry_progress", "[0, 2, 4, 6, 8, 10, 12, 14]"),
         ("http_client", "2 pages"),
         ("llm_inference", "3 completions"),
+        ("request_pool", "4 replies, 1 failure"),
         ("manual_drain", str([(f"job-{value}", value * 2) for value in range(10)])),
     ],
 )
