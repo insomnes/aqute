@@ -39,6 +39,7 @@ The HTTP handler awaits real network I/O.
 Start here when the full result list fits in memory. The handler receives
 one input item per call; `workers_count=4` permits up to four concurrent handlers.
 
+<!-- example: examples/quickstart.py -->
 ```python
 """Run a finite batch and receive results in input order."""
 
@@ -65,6 +66,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logging.info("Results: %s", asyncio.run(main()))
 ```
+<!-- /example -->
 
 The result is `[0, 2, 4, 6, 8, 10, 12, 14, 16, 18]`. `process_all()` returns
 completed task objects in input order. `task.unwrap()` returns the handler value
@@ -76,6 +78,7 @@ it does not stop the batch on its first failure.
 Inspect `task.error` when one bad item must not prevent you from using the
 other results. This example uses local conversion to make a failure reproducible.
 
+<!-- example: examples/quickstart_errors.py -->
 ```python
 """Report each failed item and keep the successful results."""
 
@@ -106,6 +109,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
 ```
+<!-- /example -->
 
 This logs ports `443` and `8080`, plus a failure for `"invalid"`. Handler
 failures are stored on completed tasks; retries are disabled by default.
@@ -118,6 +122,7 @@ Use `iter_results()` to consume results as they complete without collecting
 the full output. This example takes an asynchronous input source and stops
 after three results.
 
+<!-- example: examples/streaming.py -->
 ```python
 """Consume bounded streaming results and stop early with managed cleanup."""
 
@@ -160,6 +165,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logging.info("Results: %s consumed", asyncio.run(main()))
 ```
+<!-- /example -->
 
 Results arrive in completion order, which can differ from input order.
 Leaving `async with` awaits producer and worker cleanup, including after `break`
@@ -183,6 +189,7 @@ python -m pip install aqute==0.10.0 httpx
 Keep one client open around the managed result stream so workers finish cleanup
 before their connections close.
 
+<!-- example: examples/quickstart_http.py -->
 ```python
 """Fetch URLs with shared connections, rate limits, and transport retries."""
 
@@ -224,6 +231,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
 ```
+<!-- /example -->
 
 `workers_count=4` limits concurrent handlers. The limiter spaces attempt
 starts by at least 0.2 seconds, including retries. `retry_count=2` allows at most
@@ -276,8 +284,9 @@ retries, shutdown, counters, and migration from 0.9.2. The
 [manual result draining](https://insomnes.github.io/aqute/manual_drain/),
 and [service shutdown](https://insomnes.github.io/aqute/service_shutdown/).
 
-The [documentation source](https://github.com/insomnes/aqute/blob/main/docs/index.md) includes code directly from these
-runnable files when built. To build and view the site locally:
+The [documentation source](https://github.com/insomnes/aqute/blob/main/docs/index.md)
+contains synchronized copies of the runnable examples, visible on GitHub and the
+documentation site. To build and view the site locally:
 
 ```bash
 uv sync --locked

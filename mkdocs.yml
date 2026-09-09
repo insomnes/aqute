@@ -33,6 +33,3 @@ markdown_extensions:
   - tables
   - pymdownx.highlight
   - pymdownx.superfences
-  - pymdownx.snippets:
-      base_path: ["."]
-      check_paths: true
