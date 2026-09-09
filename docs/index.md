@@ -17,11 +17,23 @@ token-cost admission, shared throttling pauses, and checkpoints without a vendor
 
 ## Installation
 
-These pages and examples cover the 0.10.0 API. With Python 3.11+, install Aqute:
+These pages and examples cover the 0.10.1 API. With Python 3.11+, install Aqute:
 
 ```bash
-python -m pip install aqute==0.10.0
+python -m pip install aqute==0.10.1
 ```
+
+## Choose an API
+
+| Application need | Start here |
+| --- | --- |
+| A finite batch with an ordered result list | [`await engine.process_all(items)`](#1-collect-a-finite-batch-in-input-order) |
+| Incremental results in completion order | [`async with engine.iter_results(items) as results`](#3-consume-a-stream-and-stop-early) |
+| Continuous submission with separate producers and consumers | [Manual processing and shutdown](usage.md#manual-processing-and-shutdown) |
+| Independent callers awaiting their own replies from one engine | [Per-caller request pool](request_pool.md), using Aqute 0.10.1 or newer |
+
+Use a fresh engine for each helper run. Keep an external client open around the
+managed stream. For configuration defaults, see the [API reference](reference.md).
 
 ## Quickstart
 
@@ -182,7 +194,7 @@ Install the optional HTTP client, then run this standalone example. It makes
 real GET requests; replace `urls` with your endpoints.
 
 ```bash
-python -m pip install aqute==0.10.0 httpx
+python -m pip install aqute==0.10.1 httpx
 ```
 
 Keep one client open around the managed result stream so workers finish cleanup
@@ -264,27 +276,17 @@ uv run --locked python -m examples.streaming
 `uv run --locked python -m examples.quickstart_http` makes real network requests.
 The HTTP recipe below provides a separate offline example.
 
-## Bounded HTTP processing
+## Next steps
 
-Start with the [HTTP example](http_client.md) to combine four workers, a shared
-HTTPX client, attempt-rate limits, selected retries, and incremental results.
-The page includes the runnable source and explains its fail-fast error policy.
+The [HTTP recipe](http_client.md) adds shared `Retry-After` pauses and a fail-fast
+result policy. The [LLM recipe](llm_inference.md) adds estimated token budgets and
+application checkpoints. Both include offline demonstrations and instructions
+for adapting the source to real services.
 
-```bash
-uv run --locked python -m examples.http_client
-```
-
-This checkout command runs offline. It first compares throttling with and without
-a shared pause. It then completes a transport retry, logs two pages, and handles a
-terminal HTTP error in a separate run. Each run uses a fresh engine and a managed
-stream with finite queue defaults. `fetch_pages()` returns a count instead of
-retaining every body. Queues bound items, not payload bytes or application data.
-The same source provides an explicit callable path for real requests.
-
-For independent callers awaiting their own replies, see the
-[per-caller request pool](request_pool.md).
-See [For coding agents](usage.md#for-coding-agents) for helper selection and
-application ownership rules.
+See [Usage](usage.md) for error handling, buffering, cleanup, and manual processing.
+The [API reference](reference.md) lists parameters and rate-limit options.
+For upgrades from 0.9.x, use the
+[changelog and migration guide](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md).
 
 ## When to choose Aqute
 
@@ -298,13 +300,3 @@ application ownership rules.
 For infrastructure changes, retries can repeat side effects; the application must
 decide which operations are safe to repeat. For remote inference, Aqute schedules
 handler attempts; model execution and provider-specific policy remain outside it.
-
-`process_all()`, `iter_results()`, and manual processing use finite input and result
-buffering by default, with each queue sized to `workers_count`. Manual runs must
-consume results concurrently or [choose unlimited queues explicitly](usage.md#queue-default-migration).
-Queue limits bound items, not bytes; `process_all()` retains the complete result
-list. See [buffering](usage.md#buffering) for overrides, the item bound, and migration.
-
-The `iter_results()` context awaits producer and worker cleanup, including after
-early exit. See [streaming and cleanup](usage.md#streaming-and-cleanup) for the
-lifecycle contract.

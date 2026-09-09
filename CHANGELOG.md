@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.1 - 2026-09-09
 
 - Fix cancelled submissions to a full input queue leaving later results
   unpublished. Admission and its task count now complete together, so cancelling
@@ -45,7 +45,7 @@ pre-submit-then-run with results drained after completion, set both
 only the result queue must be unlimited. Before processing starts, `add_task()`
 raises `AquteError` when the input queue is full. With finite result queues and no
 concurrent consumer, submission or completion can wait indefinitely. See
-[queue-default migration](https://insomnes.github.io/aqute/usage/#queue-default-migration).
+[manual buffering](https://insomnes.github.io/aqute/usage/#manual-buffering).
 
 `process_all()` still retains the complete result list. Helpers reject pending
 manual tasks and unconsumed results; finish manual work and drain results before

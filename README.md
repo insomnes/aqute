@@ -21,7 +21,7 @@ For a comparison with plain asyncio, aiometer, and broker-backed queues, see
 Aqute requires Python 3.11+. Install the version used by these examples:
 
 ```bash
-python -m pip install aqute==0.10.0
+python -m pip install aqute==0.10.1
 ```
 
 ## Quickstart
@@ -183,7 +183,7 @@ Install the optional HTTP client, then run this standalone example. It makes
 real GET requests; replace `urls` with your endpoints.
 
 ```bash
-python -m pip install aqute==0.10.0 httpx
+python -m pip install aqute==0.10.1 httpx
 ```
 
 Keep one client open around the managed result stream so workers finish cleanup
@@ -254,63 +254,28 @@ Both helpers accept `submission_batch_size` (default `1`). Larger batches can
 improve throughput for small tasks at the cost of result latency. Handlers still
 receive one item per call; configure worker concurrency and queue limits separately.
 
-## Bounded HTTP processing
-
-The [runnable HTTP example](https://insomnes.github.io/aqute/http_client/) combines
-a shared HTTPX client, four workers, an attempt-rate limiter, selected retries,
-and incremental result consumption. Its managed stream uses finite queue defaults
-and closes processing before the client. It logs each page and returns a count;
-queue limits bound items, not response bytes or data retained by your application.
-
-From a development checkout, run it without network access:
-
-```bash
-uv run --locked python -m examples.http_client
-```
-
-The example first compares throttling with and without a shared pause. It then
-completes a transport retry and handles a terminal HTTP error in a separate run.
-Its [source](https://github.com/insomnes/aqute/blob/main/examples/http_client.py)
-also provides an explicit path for real requests. The HTTP page includes the
-source and explains buffering overrides, retry safety, and its fail-fast policy.
-
 ## Documentation and examples
 
-The [documentation](https://insomnes.github.io/aqute/) includes the complete quickstart.
-[Usage](https://insomnes.github.io/aqute/usage/) covers bounded buffering, streaming cleanup, rate limits,
-retries, shutdown, counters, and migration from 0.9.2. The
-[changelog](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md) collects the breaking changes and method renames. Full examples cover
-[streaming](https://insomnes.github.io/aqute/streaming/), [bounded HTTP processing](https://insomnes.github.io/aqute/http_client/),
-[manual result draining](https://insomnes.github.io/aqute/manual_drain/),
+The [usage guide](https://insomnes.github.io/aqute/usage/) explains buffering,
+errors, retries, shutdown, and counters. The
+[API reference](https://insomnes.github.io/aqute/reference/) lists constructor
+parameters and rate-limit options. See the
+[changelog](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md) for migration
+from 0.9.x.
+
+Full recipes cover [streaming](https://insomnes.github.io/aqute/streaming/),
+[HTTP with shared Retry-After pauses](https://insomnes.github.io/aqute/http_client/),
+[LLM inference](https://insomnes.github.io/aqute/llm_inference/),
 [per-caller request pools](https://insomnes.github.io/aqute/request_pool/),
-and [service shutdown](https://insomnes.github.io/aqute/service_shutdown/).
-
-The [documentation source](https://github.com/insomnes/aqute/blob/main/docs/index.md)
-contains synchronized copies of the runnable examples, visible on GitHub and the
-documentation site. To build and view the site locally:
-
-```bash
-uv sync --locked
-make docs
-uv run --locked mkdocs serve
-```
+[manual result draining](https://insomnes.github.io/aqute/manual_drain/), and
+[service shutdown](https://insomnes.github.io/aqute/service_shutdown/).
+The request-pool recipe requires Aqute 0.10.1 or newer for cancellation safety.
+Examples are repository source to copy into your application; they are not
+installed with the package.
 
 ## Development
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run:
-
-```bash
-uv sync --locked
-make check
-make build
-uv run --locked python -m examples.quickstart
-```
-
-`make check` runs Ruff, ty, pytest with coverage, and the strict documentation build.
-See [development](https://insomnes.github.io/aqute/development/) for example commands and release behavior.
-CI tests Python 3.11 through 3.14. See [LICENSE](https://github.com/insomnes/aqute/blob/main/LICENSE).
-
-The measured coverage badge, XML, JSON, and HTML report are available in the
-`coverage-python-3.11` artifact of each successful [CI run](https://github.com/insomnes/aqute/actions/workflows/ci.yml).
-Run `make coverage` to generate the same files locally. See
-[coverage reporting](https://insomnes.github.io/aqute/development/#coverage) for the measurement scope.
+See [development](https://insomnes.github.io/aqute/development/) for checkout setup,
+example commands, checks, documentation builds, and
+[coverage reporting](https://insomnes.github.io/aqute/development/#coverage).
+See [LICENSE](https://github.com/insomnes/aqute/blob/main/LICENSE).

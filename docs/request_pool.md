@@ -11,8 +11,15 @@ Run the offline example from a development checkout:
 uv run --locked python -m examples.request_pool
 ```
 
-Use the checkout for this recipe: it fixes a bounded-submission cancellation bug
-that is still present in 0.10.0.
+Install Aqute 0.10.1 or newer before using this recipe in an application:
+
+```bash
+python -m pip install aqute==0.10.1
+```
+
+The released package includes the bounded-submission cancellation fix missing
+from 0.10.0. Copy the source below into your application; the `examples` package
+is not installed with Aqute. A library checkout is not required.
 
 The simulated handler sleeps for 25–100 ms. It returns a valid `None` for
 `empty`, raises a terminal `ValueError` for `invalid`, and throttles `retry` once.
