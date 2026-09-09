@@ -134,6 +134,21 @@ Available implementations are in `aqute.ratelimiter`:
 - `RandomizedIntervalRateLimiter` adds bounded random delays after rolling-cap waits.
 - `PausableRateLimiter` wraps any limiter with a shared monotonic pause.
 
+For `TokenBucketRateLimiter` and `SlidingRateLimiter`, `max_rate` applies over
+`time_period` seconds; the default period is one second. To allow five grants
+in each rolling 0.2-second window:
+
+```python
+from aqute.ratelimiter import SlidingRateLimiter
+
+limiter = SlidingRateLimiter(max_rate=5, time_period=0.2)
+```
+
+The sliding limiter can grant all five permits together. A token bucket with
+`allow_burst=False` instead spaces grants by `time_period / max_rate` seconds.
+These limits apply to limiter grants; a pause wrapper can delay handler starts
+after a grant, as described below.
+
 To pause attempt admission after service throttling, share one wrapper:
 
 ```python
@@ -253,12 +268,26 @@ group. See [HTTPX's async client guide](https://www.python-httpx.org/async/).
 
 ## Manual processing and shutdown
 
-Use the Aqute async context manager, or `start()` followed by `stop()`. Start workers
-before filling a bounded input queue; otherwise `add_task()` raises `AquteError`
-when the input queue is already full. With default limits, submit with
+Use the Aqute async context manager, or call `engine.start()` and later
+`await engine.stop()` in a `finally` block. `start()` is synchronous and returns
+the background `asyncio.Task`. Awaiting that task waits for the whole run to end;
+do not `await engine.start()` before submitting input. The
+[manual drain example](manual_drain.md) shows explicit start and cleanup.
+
+Start workers before filling a bounded input queue; otherwise `add_task()` raises
+`AquteError` when the input queue is already full. With default limits, submit with
 `await add_task(data)` and consume results concurrently with `await get_result()`.
 Custom IDs use `task_id`; omitted IDs are generated. `drain_results()` removes currently available results without waiting.
 `get_result()` raises `AquteError` after normal completion when no results remain.
+
+Results use one shared queue. `get_result()` returns the next available result,
+not necessarily the result of the caller's last `add_task()`. For per-caller
+responses, use one result consumer and route each task by `task.task_id` to an
+application-owned `asyncio.Future`. Register the future under a unique ID before
+`await add_task(data, task_id=...)`, because processing can finish during
+submission. The application owns cancellation and cleanup of these futures,
+including submission failures and shutdown. Check `task.success` or use
+`task.unwrap()` when delivering results; a successful result can be `None`.
 
 `finish_submitting()` signals that input submission is complete. `await finish()`
 also sends that signal and waits for processing. Stop producers before either
