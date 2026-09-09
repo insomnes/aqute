@@ -233,6 +233,10 @@ policies. Threads generally do not make CPU-bound Python work parallel under the
 With `use_priority_queue=True`, pass `task_priority` to `add_task()`. Lower values
 run first among admitted pending tasks. Priority does not preempt an occupied
 worker. A worker retains its task through retries.
+Only tasks currently in the input queue can be reordered. A positive
+`input_task_queue_size` bounds this set; the default capacity is `workers_count`.
+Increasing capacity lets more pending tasks compete by priority but retains more
+inputs. Priority does not order callers still waiting for admission.
 
 ## Errors, retries, and timeouts
 
@@ -258,10 +262,40 @@ repeat a side effect, so applications must decide whether retrying is safe.
 negative timeout prevents handler invocation. Add `AquteTaskTimeoutError` to
 `errors_to_not_retry` when timeouts must not be retried.
 
+Import the public exception types directly from `aqute`:
+
+```python
+from aqute import AquteError, AquteTaskTimeoutError, AquteTooManyTasksFailedError
+```
+
 `start_timeout_seconds` limits waiting for the first input after start, including
 an asynchronous source's first item. `total_failed_tasks_limit` stops processing
 with `AquteTooManyTasksFailedError` when collected terminal failures reach the limit.
+The limit is inclusive: `total_failed_tasks_limit=1` stops on the first collected
+terminal failure, after publishing that task's result. The background run task
+raises the error and cancels remaining workers; cancelled handlers do not produce
+terminal results.
+
+In the manual API, `finish()` propagates the run error. `get_result()` returns
+already-published results first, then propagates the error when the queue is empty
+and the run has failed. A blocked `add_task()` also propagates the run error if
+the failed run completes before its admission wait returns. Keep failure handling
+around the full lifecycle, including [shutdown](#manual-processing-and-shutdown).
 Source exceptions propagate after helper cleanup.
+
+The `aqute.worker` logger emits `WARNING` for each handler exception or timeout,
+including attempts that will be retried. A warning does not prove terminal failure;
+use terminal task outcomes to determine success. To suppress these warnings in
+an application that reports outcomes itself:
+
+```python
+import logging
+
+logging.getLogger("aqute.worker").setLevel(logging.ERROR)
+```
+
+This also suppresses warnings for terminal handler failures. It does not change
+retries or result delivery.
 
 The [HTTP example](http_client.md) uses one shared HTTPX client and retries
 transport errors and HTTP 429 responses. Other HTTP status failures propagate
@@ -322,6 +356,9 @@ The executable [service shutdown example](service_shutdown.md) shows:
 input. A drain deadline requests cancellation; it cannot force an uncooperative
 coroutine to terminate. The example's caller receives whether draining timed out.
 In-process completion does not imply durable delivery.
+If the run has failed, `stop()` re-raises its error after cleanup, even if another
+call already raised it. This also applies to cleanup through the async context
+manager or a `finally` block.
 
 Completed results remain available after `stop()`. After `await stop()`, call
 `start()` again to reuse the same engine; `stop()` resets the run task and counters.
