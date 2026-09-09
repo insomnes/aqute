@@ -28,6 +28,7 @@ nav:
       - Changelog and migration: https://github.com/insomnes/aqute/blob/main/CHANGELOG.md
   - Recipes:
       - Streaming: streaming.md
+      - Resumable batch: resumable_batch.md
       - Retry and progress: retry_progress.md
       - HTTP client: http_client.md
       - LLM inference: llm_inference.md

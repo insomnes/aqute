@@ -84,8 +84,9 @@ submission. This demonstration keeps the checkpoint in memory, keyed by the full
 model and configuration. Duplicate inputs within one run can still be submitted.
 
 For resumable application work, persist the output and completion key together
-and include the model and relevant request configuration in that key. A crash
-after inference but before persistence can repeat a request; this example does
+and include the model and relevant request configuration in that key. The
+[resumable batch recipe](resumable_batch.md) shows a SQLite checkpoint and restart
+filter. A crash after inference but before persistence can repeat a request; this example does
 not provide exactly-once execution or a durable queue. Application checkpoints
 also retain data outside Aqute's queue bounds. Each batch creates a fresh limiter,
 so restarting a batch resets the local budget and shared pause. Frequent short

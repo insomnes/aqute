@@ -10,7 +10,7 @@ offload them to threads or processes.
 
 Typical uses are API ingestion and backfills, infrastructure automation, and
 independent remote inference or evaluation requests. Your application owns retry
-safety, checkpoints, token budgets, and provider policy.
+safety, [checkpoints](resumable_batch.md), token budgets, and provider policy.
 
 The [LLM batch inference example](llm_inference.md) shows application-owned
 token-cost admission, shared throttling pauses, and checkpoints without a vendor SDK.
