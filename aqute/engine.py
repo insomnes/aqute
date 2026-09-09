@@ -117,6 +117,7 @@ class Aqute(Generic[TData, TResult]):
             retry_delay=retry_delay,
         )
 
+        self._next_task_id = 0
         self._added_tasks_count = 0
         self._finished_tasks_count = 0
 
@@ -220,7 +221,8 @@ class Aqute(Generic[TData, TResult]):
         Args:
             task_data: Data for the task to process.
             task_id (optional): Identifier for the task. If not provided, it's
-                auto-generated based on the added tasks count.
+                generated from a per-run sequence before waiting for input capacity.
+                Cancelled submissions can leave gaps in this sequence.
             task_priority (optional): Priority of the task used if priority queue is
                 enabled. Lower means more prior task. Defaults to 1_000_000.
 
@@ -232,7 +234,7 @@ class Aqute(Generic[TData, TResult]):
                 or set input_task_queue_size=0 for unlimited pre-submission.
                 Also raised when the load has completed or was cancelled.
         """
-        task_id = task_id or str(self._added_tasks_count)
+        task_id = task_id or str(self._next_task_id)
 
         task: AquteTask[TData, TResult] = AquteTask(
             data=task_data,
@@ -251,6 +253,8 @@ class Aqute(Generic[TData, TResult]):
                 "Input queue is full before start(); call start() first "
                 "or set input_task_queue_size=0 for unlimited pre-submission"
             )
+        # Reserve before admission can suspend; admitted-task accounting stays separate.
+        self._next_task_id += 1
         if load is None or not self._foreman.in_queue.full():
             await self._foreman.add_task(task)
             self._added_tasks_count += 1
@@ -535,6 +539,7 @@ class Aqute(Generic[TData, TResult]):
                 await self._foreman.stop()
             finally:
                 self.aiotask_of_run_load = None
+                self._next_task_id = 0
                 self._added_tasks_count = 0
                 self._finished_tasks_count = 0
                 self._failed_tasks = 0
