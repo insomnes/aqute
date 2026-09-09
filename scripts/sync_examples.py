@@ -15,7 +15,7 @@ BLOCK = re.compile(
 
 def sync_document(path: Path, *, check: bool) -> bool:
     """Return True when a check finds an outdated block; updates preserve prose."""
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     blocks = list(BLOCK.finditer(text))
     if text.count("<!-- example:") != len(blocks) or text.count(
         "<!-- /example -->"
@@ -24,7 +24,7 @@ def sync_document(path: Path, *, check: bool) -> bool:
 
     def render(match: re.Match[str]) -> str:
         source = match["source"]
-        code = (ROOT / source).read_text().rstrip("\n")
+        code = (ROOT / source).read_text(encoding="utf-8").rstrip("\n")
         return f"<!-- example: {source} -->\n```python\n{code}\n```\n<!-- /example -->"
 
     updated = BLOCK.sub(render, text)
@@ -33,7 +33,7 @@ def sync_document(path: Path, *, check: bool) -> bool:
     if check:
         logging.error("%s: examples differ; run make sync-examples", path)
         return True
-    path.write_text(updated)
+    path.write_text(updated, encoding="utf-8")
     logging.info("Updated %s", path)
     return False
 
