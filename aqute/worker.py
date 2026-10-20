@@ -121,6 +121,12 @@ class Worker(Generic[TData, TResult]):
                         self._counters.retries += 1
                     task.result = await self.handle_coro(task.data)
         except Exception as exc:
+            worker = asyncio.current_task()
+            assert worker is not None
+            # The timeout context removes its own cancellation request on exit.
+            # A remaining request means cleanup failed during external shutdown.
+            if worker.cancelling():
+                raise
             if (
                 isinstance(exc, TimeoutError)
                 and timeout is not None
@@ -320,7 +326,8 @@ class Foreman(Generic[TData, TResult]):
         this does not wait for admitted work to complete.
 
         Raises:
-            ExceptionGroup: If the worker group failed before cleanup.
+            ExceptionGroup: If the worker group or cancellation cleanup failed,
+                including when the caller requested cancellation.
             asyncio.CancelledError: If the caller is cancelled during cleanup.
         """
         try:

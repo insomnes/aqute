@@ -187,9 +187,9 @@ terminal results.
 
 **Since 0.10.3:** `finish()` and `iter_results()` raise `AquteError` if processing
 is independently cancelled, for example by another caller invoking `stop()`.
-Cancellation of the consuming caller still propagates as `CancelledError`;
-an expired outer `asyncio.timeout` still raises `TimeoutError`, including during
-cooperative cleanup.
+If handler cancellation cleanup succeeds, cancellation of the consuming caller
+propagates as `CancelledError`. Under the same condition, an expired outer
+`asyncio.timeout` raises `TimeoutError`, including during cooperative cleanup.
 
 In the manual API, `finish()` propagates the run error. `get_result()` returns
 already-published results first, then propagates the error when the queue is empty
@@ -282,9 +282,22 @@ If the run has failed, `stop()` re-raises its error after cleanup, even if anoth
 call already raised it. This also applies to cleanup through the async context
 manager or a `finally` block.
 
-Completed results remain available after `stop()`. After `await stop()`, call
-`start()` again to reuse the same engine; `stop()` resets the run task and counters.
-Drain retained results before using a helper again.
+If handler cleanup raises an ordinary exception while unwinding cancellation,
+shutdown raises `ExceptionGroup` containing that exception after cooperative
+worker cleanup. This also applies when caller cancellation initiates cleanup
+through `stop()`, `finish()`, `process_all()`, or context exit. The failed invocation
+is not retried and does not produce an ordinary task result. A genuine per-attempt
+timeout remains subject to the configured retry policy.
+
+Unconsumed results already published to `result_queue` remain available after
+`stop()`, including with a caller-supplied queue. Its identity and capacity remain
+unchanged. Handler completion and terminal counters do not guarantee publication;
+unpublished results may be lost during shutdown.
+
+After `stop()` completes cleanup, including when it raises a cleanup error, the
+run task and counters are reset. Call `start()` again to reuse the same engine.
+Drain retained results before using a helper again. After cancelling `finish()`,
+call `stop()` before reusing the engine.
 
 <span id="queue-default-migration"></span>
 

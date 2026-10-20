@@ -197,7 +197,8 @@ class Aqute(Generic[TData, TResult]):
 
         Stop producers before calling this method. Keep consuming finite result
         queues while waiting. Call `stop()` afterward to reset the engine.
-        Caller cancellation propagates.
+        Caller cancellation propagates after cooperative cleanup. Ordinary
+        handler errors during cancellation cleanup raise `ExceptionGroup`.
 
         Raises:
             AquteError: If processing has not started, the run was independently
@@ -359,7 +360,8 @@ class Aqute(Generic[TData, TResult]):
         and handlers. Drain retained results before reusing the engine.
         Source exceptions propagate after cancelling owned processing.
         Independently cancelled processing raises AquteError. Cancellation of
-        the consuming caller still propagates, including during cleanup.
+        the consuming caller propagates after cleanup unless handler cancellation
+        cleanup raises an ordinary error; that error raises `ExceptionGroup`.
 
         Omitted queue limits use workers_count items for pending input, results,
         and the internal result relay. With finite input capacity I, result
@@ -508,8 +510,10 @@ class Aqute(Generic[TData, TResult]):
         in a list, maintaining the order of the input iterable.
         Internal queues follow iter_results() limits. The returned list retains
         all results, so total memory can still grow with input length.
-        Handler errors remain task values. Source errors and caller cancellation
-        propagate after cooperative cleanup. The engine stops before returning.
+        Ordinary handler errors remain task values. Source errors and caller
+        cancellation propagate after cooperative cleanup. Handler errors during
+        cancellation cleanup raise `ExceptionGroup`, including after caller
+        cancellation. The engine stops before returning.
 
         Args:
             tasks_data: Finite synchronous or asynchronous iterable of handler inputs.
@@ -586,15 +590,21 @@ class Aqute(Generic[TData, TResult]):
         """
         Cancel processing and wait for worker cleanup before resetting counters.
 
-        Completed results remain available. Handlers and rate limiters must
-        cooperate with asyncio cancellation. The instance can then be reused.
-        Pending input is discarded. Caller cancellation propagates. A failed
-        run's error is raised again after cleanup, even if already observed.
+        Unconsumed results already published to `result_queue` remain available,
+        including with a caller-supplied queue. Handler completion and terminal
+        counters do not guarantee publication; unpublished results may be lost.
+        Handlers and rate limiters must cooperate with asyncio cancellation.
+        The instance can then be reused. Pending input is discarded.
+        Caller cancellation propagates unless handler cleanup raises an ordinary
+        error, which raises `ExceptionGroup` after cleanup. Cleanup errors are
+        not retried or returned as task results. A failed run's error is raised
+        again after cleanup, even if already observed.
 
         Raises:
             AquteError: If the run failed with an engine error.
             AquteTooManyTasksFailedError: If the run reached its failure limit.
-            ExceptionGroup: If a limiter, retry callback, or worker failed.
+            ExceptionGroup: If a limiter, retry callback, worker, or handler
+                cancellation cleanup failed, including after caller cancellation.
         """
         try:
             if self.aiotask_of_run_load is not None:
@@ -729,6 +739,8 @@ class Aqute(Generic[TData, TResult]):
         This cancels unfinished processing. Call `finish()` inside the context
         while consuming results if every admitted task must complete.
         Block exceptions are not suppressed. Cleanup can re-raise a run failure.
+        Handler errors during cancellation cleanup raise `ExceptionGroup`,
+        including when caller cancellation initiated cleanup.
 
         Args:
             exc_type: Exception type from the context body, or `None`.
