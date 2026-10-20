@@ -12,8 +12,24 @@ logger = logging.getLogger("aqute.ratelimiter")
 
 
 class RateLimiter(Protocol):
+    """Protocol for asynchronous attempt admission.
+
+    Implement `acquire()` on the application's event loop. Every retry acquires
+    a permit again. Implementations must propagate cancellation and avoid
+    blocking the event loop.
+    """
+
     async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
-        """Should block inside this method if needed"""
+        """Wait until one handler attempt may proceed.
+
+        Args:
+            name: Worker identifier; implementations may use it for partitioning
+                or logging.
+            task: Task awaiting admission, or `None` for a direct acquisition.
+
+        Raises:
+            asyncio.CancelledError: If the caller is cancelled while waiting.
+        """
 
 
 class PausableRateLimiter:
@@ -29,19 +45,35 @@ class PausableRateLimiter:
     """
 
     def __init__(self, inner: RateLimiter) -> None:
+        """Wrap a limiter with a shared pause.
+
+        Args:
+            inner: Limiter to acquire once per call, between pause checks.
+        """
         self._inner = inner
         self._paused_until = 0.0
 
     @property
     def paused_until(self) -> float:
-        """Latest monotonic deadline, initially zero; retained after expiry."""
+        """Latest monotonic deadline, initially zero; retained after expiry.
+
+        Returns:
+            The absolute deadline in seconds from `time.monotonic()`.
+        """
         return self._paused_until
 
     def pause_for(self, seconds: float) -> None:
         """Extend the pause by finite, nonnegative seconds from now.
 
         A shorter pause never reduces the existing deadline. Invalid values
-        raise ValueError without changing the pause.
+        leave the pause unchanged.
+
+        Args:
+            seconds: Finite, nonnegative duration from `time.monotonic()` now.
+                Zero adds no wait.
+
+        Raises:
+            ValueError: If `seconds` is negative or nonfinite.
         """
         if not math.isfinite(seconds) or seconds < 0:
             raise ValueError("seconds must be finite and nonnegative")
@@ -51,7 +83,13 @@ class PausableRateLimiter:
         """Extend the pause to a time.monotonic() deadline.
 
         Past deadlines do not delay acquisition. A shorter deadline never
-        reduces the current pause. Nonfinite or negative values raise ValueError.
+        reduces the current pause.
+
+        Args:
+            deadline: Finite, nonnegative absolute `time.monotonic()` time.
+
+        Raises:
+            ValueError: If `deadline` is negative or nonfinite.
         """
         if not math.isfinite(deadline) or deadline < 0:
             raise ValueError("deadline must be finite and nonnegative")
@@ -63,34 +101,48 @@ class PausableRateLimiter:
             await asyncio.sleep(remaining)
 
     async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
-        """Wait before and after the inner grant; propagate cancellation."""
+        """Wait for pauses before and after acquiring the inner limiter.
+
+        Recheck extensions made during either wait. Delayed inner grants can
+        resume together; this wrapper does not reacquire their permits.
+        Inner limiter errors propagate.
+
+        Args:
+            name: Worker identifier passed unchanged to the inner limiter.
+            task: Task passed unchanged to the inner limiter.
+
+        Raises:
+            asyncio.CancelledError: If the caller is cancelled while waiting.
+        """
         await self._wait_for_pause()
         await self._inner.acquire(name=name, task=task)
         await self._wait_for_pause()
 
 
 class TokenBucketRateLimiter:
+    """Control a shared rate with a token bucket that starts full.
+
+    Idle time refills the bucket up to its capacity. Each acquisition consumes
+    one token. The default capacity is one; burst mode uses `max_rate` tokens.
+    """
+
     def __init__(
         self,
         max_rate: int,
         time_period: int | float = 1,
         allow_burst: bool = False,
     ) -> None:
-        """
-        Initializes the `TokenBucketRateLimiter` with a given rate, time period,
-        and burst requests permission.
-
-        This rate limiter employs the token bucket technique where tokens are added
-        to the bucket at a certain rate up to the bucket's capacity. An action consumes
-        a token from the bucket. The bucket starts full, and idle time cannot increase
-        its capacity.
+        """Configure the refill rate and bucket capacity.
 
         Args:
-            max_rate: Number of tokens added per time_period.
-            time_period (optional): Finite positive period in seconds over which
-                max_rate is measured. Defaults to 1 second.
-            allow_burst (optional): If True, capacity is max_rate tokens. Otherwise,
-                capacity is one token, enforcing time_period / max_rate between grants.
+            max_rate: Tokens added per `time_period`. Must be at least one.
+            time_period: Finite positive measurement period in seconds.
+            allow_burst: If true, capacity is `max_rate` tokens. Otherwise,
+                capacity is one token, spacing grants by `time_period / max_rate`.
+
+        Raises:
+            ValueError: If `max_rate` is below one or `time_period` is not finite
+                and positive.
         """
         if max_rate < 1 or not 0 < time_period < math.inf:
             raise ValueError(
@@ -113,18 +165,14 @@ class TokenBucketRateLimiter:
         self._last_fill = current_time
 
     async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
-        """
-        Acquires permission to proceed based on the rate limits set.
-
-        If the bucket is empty, it waits for the necessary duration for tokens to be
-        refilled. Once there's at least one token, the action is allowed and a token
-        is consumed.
+        """Wait for and consume one token.
 
         Args:
-            name (optional): A label or identifier for the action. Primarily used
-                for logging. Defaults to an empty string.
-            task (optional): The task that is attempting to acquire a rate limit token.
-                Defaults to None for protocol compatibility.
+            name: Worker identifier used for logging.
+            task: Task awaiting admission; accepted for protocol compatibility.
+
+        Raises:
+            asyncio.CancelledError: If the caller is cancelled while waiting.
         """
         async with self._lock:
             self._refill_tokens()
@@ -137,17 +185,21 @@ class TokenBucketRateLimiter:
 
 
 class SlidingRateLimiter:
-    def __init__(self, max_rate: int, time_period: int | float = 1):
-        """
-        Initializes the `SlidingRateLimiter` with a given rate over a time period.
+    """Limit grants in a rolling time window.
 
-        This rate limiter employs a sliding window technique to regulate the quantity
-        of actions within the given time span.
+    Up to `max_rate` permits can be granted together when the window is empty.
+    """
+
+    def __init__(self, max_rate: int, time_period: int | float = 1):
+        """Configure the rolling grant limit.
 
         Args:
-            max_rate: Maximum allowable actions within the time period.
-            time_period (optional): Finite positive period in seconds for rate
-                measurement. Defaults to 1 second.
+            max_rate: Maximum grants per rolling window. Must be at least one.
+            time_period: Finite positive window duration in seconds.
+
+        Raises:
+            ValueError: If `max_rate` is below one or `time_period` is not finite
+                and positive.
         """
         if max_rate < 1 or not 0 < time_period < math.inf:
             raise ValueError(
@@ -159,18 +211,14 @@ class SlidingRateLimiter:
         self._lock = asyncio.Lock()
 
     async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
-        """
-        Acquires permission to proceed based on the rate limits set.
-
-        If the action rate has reached its limit, it waits for the necessary
-        duration to ensure the rate isn't exceeded. The current action timestamp
-        is recorded in the sliding window to ensure rate limiting compliance.
+        """Wait for window capacity and record one grant.
 
         Args:
-            name (optional): A label or identifier for the action. Primarily used
-                for logging. Defaults to an empty string.
-            task (optional): The task that is attempting to acquire a rate limit token.
-                Defaults to None for protocol compatibility.
+            name: Worker identifier used for logging.
+            task: Task awaiting admission; accepted for protocol compatibility.
+
+        Raises:
+            asyncio.CancelledError: If the caller is cancelled while waiting.
         """
         async with self._lock:
             current_time = perf_counter()
@@ -186,19 +234,22 @@ class SlidingRateLimiter:
 
 
 class PerWorkerRateLimiter:
-    def __init__(self, max_rate: int, time_period: int | float = 1):
-        """
-        Initializes the `PerWorkerRateLimiter` with a specified rate and time period
-        for each unique worker.
+    """Apply a separate token bucket to each worker name.
 
-        This rate limiter maintains separate instances of `TokenBucketRateLimiter`
-        for each worker, identified by a unique name.
-        It ensures that rate limiting is enforced independently for each worker.
+    Each bucket starts with one token and spaces subsequent grants independently.
+    Aggregate throughput depends on the number of distinct names.
+    """
+
+    def __init__(self, max_rate: int, time_period: int | float = 1):
+        """Configure the refill rate for each worker's bucket.
 
         Args:
-            max_rate: Maximum allowable actions within the time period.
-            time_period (optional): Finite positive period in seconds for rate
-                measurement. Defaults to 1 second.
+            max_rate: Tokens added per worker per `time_period`. Must be at least one.
+            time_period: Finite positive measurement period in seconds.
+
+        Raises:
+            ValueError: If `max_rate` is below one or `time_period` is not finite
+                and positive.
         """
         if max_rate < 1 or not 0 < time_period < math.inf:
             raise ValueError(
@@ -210,25 +261,27 @@ class PerWorkerRateLimiter:
         )
 
     async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
-        """
-        Acquires a token for a particular worker, identified by `name`,
-        to proceed with an action.
-
-        If the limit for the worker has been reached, this method will block
-        until a token becomes available, ensuring that rate limits are not exceeded.
+        """Wait for and consume a token from the named worker's bucket.
 
         Args:
-            name (optional): The identifier for the worker that is attempting to
-                acquire a rate limit token. Defaults to an empty string
-                for protocol compatibility.
-            task (optional): The task that is attempting to acquire a rate limit token.
-                Defaults to None for protocol compatibility.
+            name: Bucket key. Calls with the same name share a rate limit,
+                including calls that omit the name.
+            task: Task awaiting admission; accepted for protocol compatibility.
+
+        Raises:
+            asyncio.CancelledError: If the caller is cancelled while waiting.
         """
 
         await self._per_worker_limiters[name].acquire(name)
 
 
 class RandomizedIntervalRateLimiter:
+    """Limit rolling grants and add bounded random delay to every acquisition.
+
+    Extra delay applies at startup and after idle. Quota and scheduler waits
+    can exceed the jitter bounds and reduce throughput below the configured rate.
+    """
+
     def __init__(
         self,
         max_rate: int,
@@ -239,8 +292,7 @@ class RandomizedIntervalRateLimiter:
         upper_multiplier_bound: float = 1.1,
         lower_upper_fluctuation: float = 0.005,
     ):
-        """
-        Limits grants to max_rate in each rolling time_period, with bounded jitter.
+        """Configure the rolling grant limit and randomized delay.
 
         Each grant waits for quota, then for an additional randomized delay,
         including at startup and after idle. Independent random phases reduce
@@ -248,21 +300,27 @@ class RandomizedIntervalRateLimiter:
         detection avoidance. Additional waits can reduce sustained throughput.
 
         Args:
-            max_rate: Maximum allowable actions within the time period.
-            time_period (optional): Finite positive period in seconds for rate
-                measurement. Defaults to 1 second.
-            mean_target_multiplier (optional): Mean of the Gaussian input, before
+            max_rate: Maximum grants per rolling window. Must be at least one.
+            time_period: Finite positive window duration in seconds.
+            mean_target_multiplier: Mean of the Gaussian input, before
                 phase scaling and bounding. This is not the mean emitted delay.
-            std_dev (optional): Standard deviation of the Gaussian input.
-            lower_multiplier_bound (optional): The lower bound for the multiplier,
-                ensuring a minimum sleep duration.
-            upper_multiplier_bound (optional): The upper bound for the multiplier,
-                bounding the additional delay, not quota or scheduler waits.
-            lower_upper_fluctuation (optional): Inward bound adjustment, multiplied
+            std_dev: Standard deviation of the Gaussian input, before scaling
+                and bounding.
+            lower_multiplier_bound: Nonnegative lower multiplier bound,
+                ensuring a minimum additional delay.
+            upper_multiplier_bound: Upper multiplier bound for the additional
+                delay, excluding quota and scheduler waits.
+            lower_upper_fluctuation: Inward bound adjustment, multiplied
                 by the same absolute sine of a uniform phase as the Gaussian input.
                 Use nonnegative bounds and fluctuation with twice the fluctuation
                 no greater than the difference between upper and lower bounds.
-                Multipliers convert to seconds through time_period / max_rate.
+                Multipliers convert to seconds through `time_period / max_rate`.
+                The caller must ensure these jitter constraints; only rate and
+                period are validated.
+
+        Raises:
+            ValueError: If `max_rate` is below one or `time_period` is not finite
+                and positive.
         """
         if max_rate < 1 or not 0 < time_period < math.inf:
             raise ValueError(
@@ -299,20 +357,14 @@ class RandomizedIntervalRateLimiter:
         return self._optimal_sleep * self._get_multiplier()
 
     async def acquire(self, name: str = "", task: AquteTask | None = None) -> None:
-        """
-        Acquires permission to proceed based on the rate limits set.
-
-        If the action rate has reached its limit, it waits for the necessary
-        duration to ensure the rate isn't exceeded. Sleeps for a randomized interval
-        after this check.
-        The current action timestamp is then recorded for the next
-        max-rate'th limit check.
+        """Wait for quota, then the full random delay, and record one grant.
 
         Args:
-            name (optional): A label or identifier for the action. Primarily used
-                for logging. Defaults to an empty string.
-            task (optional): The task that is attempting to acquire a rate limit token.
-                Defaults to None for protocol compatibility.
+            name: Worker identifier; accepted for protocol compatibility.
+            task: Task awaiting admission; accepted for protocol compatibility.
+
+        Raises:
+            asyncio.CancelledError: If the caller is cancelled while waiting.
         """
         async with self._lock:
             current_time = perf_counter()

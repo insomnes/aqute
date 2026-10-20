@@ -2,9 +2,9 @@
 
 <span id="for-coding-agents"></span>
 
-This guide covers the 0.10.3 API for Python 3.11+. Start with
+This guide covers the 0.10.4 API for Python 3.11+. Start with
 [installation](index.md#installation) and [Choose an API](index.md#choose-an-api).
-See the [API reference](reference.md) for parameter types and defaults, or the
+See the [API reference](api/index.md) for parameter types and defaults, or the
 [changelog](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md) for migration
 from 0.9.x.
 

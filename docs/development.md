@@ -51,6 +51,38 @@ preserved. `make check-examples` checks without writing and reports outdated
 copies, missing sources, or malformed markers. Both `make docs` and `make check`
 run it, including in CI.
 
+## API documentation
+
+The [API reference](api/index.md) uses
+[mkdocstrings-python](https://mkdocstrings.github.io/python/) to read the local
+`aqute/` source. Keep types and defaults in Python signatures. Write Google-style
+docstrings with a short summary and `Args:`, `Returns:`, and `Raises:` sections
+where applicable. Describe each parameter, return value, and relevant error
+condition. Document public fields with a docstring immediately after the
+annotated assignment. Use backticks for identifiers.
+
+Put constructor parameter documentation in `__init__`; the renderer merges it
+into the class entry. For `AquteTask`, keep the construction example and explicit
+field entries instead of displaying the generated dataclass constructor, which
+also contains private parameters.
+
+To add an API entry:
+
+1. Complete the symbol's docstring and annotations in Python.
+2. Add a `:::` directive to the appropriate page under `docs/api/`. Use its public
+   import path, such as `aqute.Aqute`.
+3. Select public members with an explicit `members` list. Use `members: []` for
+   entries without members. Keep worker internals and inherited implementation
+   methods excluded.
+4. Add new pages to `mkdocs.yml` and the API landing page. Link longer behavioral
+   explanations to `usage.md` or `reference.md`; preserve existing guide anchors.
+5. Run `make docs` and `make check`. Preview `/aqute/api/` with `mkdocs serve` and
+   check signatures, links, search results, and narrow-screen layout.
+
+Internal anchor validation is set to `warn`, which fails strict builds for broken
+anchor links. The reference describes the build checkout; production builds
+continue to follow `main`.
+
 ## Documentation publication
 
 The documentation site is [insomnes.github.io/aqute](https://insomnes.github.io/aqute/).
