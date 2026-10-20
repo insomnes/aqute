@@ -50,6 +50,7 @@ class Worker(Generic[TData, TResult]):
         self._retry_delay = retry_delay
         self._counters = _counters if _counters is not None else _WorkerCounters()
         self._results_changed = _results_changed
+        self._shutdown_requested: asyncio.Event | None = None
 
     async def run(self) -> None:
         while True:
@@ -121,11 +122,10 @@ class Worker(Generic[TData, TResult]):
                         self._counters.retries += 1
                     task.result = await self.handle_coro(task.data)
         except Exception as exc:
-            worker = asyncio.current_task()
-            assert worker is not None
-            # The timeout context removes its own cancellation request on exit.
-            # A remaining request means cleanup failed during external shutdown.
-            if worker.cancelling():
+            if (
+                self._shutdown_requested is not None
+                and self._shutdown_requested.is_set()
+            ):
                 raise
             if (
                 isinstance(exc, TimeoutError)
@@ -394,10 +394,28 @@ class Foreman(Generic[TData, TResult]):
         self._closing = asyncio.Event()
 
     async def _run_workers(self) -> None:
+        shutdown_requested = asyncio.Event()
+        for worker in self._workers:
+            worker._shutdown_requested = shutdown_requested
+
+        async def run_worker(worker: Worker[TData, TResult]) -> None:
+            try:
+                await worker.run()
+            except BaseException:
+                # Publish before TaskGroup cancels sibling workers.
+                shutdown_requested.set()
+                raise
+
         async with asyncio.TaskGroup() as group:
-            jobs = [group.create_task(w.run(), name=w.name) for w in self._workers]
-            await self._closing.wait()
-            await self.in_queue.join()
+            jobs = [
+                group.create_task(run_worker(w), name=w.name) for w in self._workers
+            ]
+            try:
+                await self._closing.wait()
+                await self.in_queue.join()
+            finally:
+                # Mark owner cancellation before workers begin handler cleanup.
+                shutdown_requested.set()
             for job in jobs:
                 job.cancel()
 
