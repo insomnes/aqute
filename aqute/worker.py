@@ -135,6 +135,13 @@ class Worker(Generic[TData, TResult]):
 
 
 class Foreman(Generic[TData, TResult]):
+    """Manage asyncio workers with shared input and output queues.
+
+    Submit `AquteTask` objects and inspect `error` and `result` after processing.
+    This layer does not set `success`; successful results cannot be read with
+    `unwrap()`. Prefer `Aqute` for the managed terminal-result contract.
+    """
+
     def __init__(
         self,
         handle_coro: Callable[[TData], Coroutine[Any, Any, TResult]],
@@ -148,27 +155,35 @@ class Foreman(Generic[TData, TResult]):
         retry_filter: Callable[[AquteTask[TData, TResult]], bool] | None = None,
         retry_delay: Callable[[int, Exception], float] | None = None,
     ):
-        """
-        Initialize a worker pool with a shared input queue.
+        """Configure workers without starting their asyncio tasks.
 
         Args:
-            handle_coro: Coroutine designated for task processing.
-            workers_count: Number of workers. Must be at least one.
-            rate_limiter (optional): Tool to control processing rate. If not given,
-                processing won't be rate-limited.
-            input_task_queue_size (optional): Maximum size of the input queue. Defaults
-                to 0, which means no limit.
-            use_priority_queue (optional): Whether to use a priority queue for input.
-                Defaults to False.
-            task_timeout_seconds (optional): Timeout for task handler coroutine wait.
-                Defaults to None. AquteTaskTimeoutError will be raised
-                if task processing takes longer than this value.
-            output_task_queue_size (optional): Maximum buffered worker results.
-                Zero means unlimited. Consume results while waiting for finalize.
-            retry_filter (optional): Decide whether a failed task gets another
-                attempt after decrementing its remaining tries. Defaults to None.
-            retry_delay (optional): Select a delay before each permitted retry.
-                Receives the 1-based failed-attempt number and its exception.
+            handle_coro: Async handler called with `task.data` on each attempt.
+            workers_count: Maximum occupied workers. Must be at least one.
+            rate_limiter: Limiter acquired before every attempt, including retries.
+                `None` disables rate limiting.
+            input_task_queue_size: Maximum pending input items.
+                Nonpositive values mean unlimited.
+            use_priority_queue: Order pending inputs by task priority.
+                Use `Aqute.add_task()` to configure priority through a public API.
+            task_timeout_seconds: Timeout in seconds per handler attempt,
+                excluding limiter and retry waits. `None` disables it.
+                Expiry is stored as `AquteTaskTimeoutError`; a nonpositive value
+                prevents handler invocation.
+            output_task_queue_size: Maximum buffered worker results.
+                Nonpositive values mean unlimited. Consume results while
+                awaiting `finalize()`.
+            retry_filter: Decide whether a failed task gets another attempt after
+                decrementing its internal remaining-tries value. `None` disables
+                retries. This callback owns the retry policy; `Foreman` does not
+                impose a retry limit. Use `Aqute` for a configured retry budget.
+            retry_delay: Map the 1-based failed-attempt number and exception to
+                finite, nonnegative seconds before a permitted retry.
+                `None` means zero delay. Invalid values or callback errors fail
+                the worker group.
+
+        Raises:
+            ValueError: If `workers_count` is less than one.
         """
         if workers_count < 1:
             raise ValueError("workers_count must be at least 1")
@@ -196,11 +211,12 @@ class Foreman(Generic[TData, TResult]):
         self.reset()
 
     def start(self) -> None:
-        """
-        Initiates the worker processes.
+        """Start worker asyncio tasks on the running event loop.
 
-        If the workers haven't been initialized yet, they'll be
-        set to start processing tasks.
+        Repeated calls do not start another group before cleanup resets it.
+
+        Raises:
+            RuntimeError: If no event loop is running.
         """
         if self._worker_run is None:
             self._worker_run = asyncio.create_task(
@@ -210,14 +226,19 @@ class Foreman(Generic[TData, TResult]):
             self._worker_run.add_done_callback(lambda _: changed.set())
 
     async def add_task(self, task: AquteTask[TData, TResult]) -> None:
-        """
-        Adds a specified task to the input queue for processing.
+        """Submit a task, waiting for input queue capacity.
 
+        Start workers before filling a finite input queue.
         Cancellation can race completed admission. A cancelled submission does
         not prove that the task was not accepted or prevent its processing.
 
         Args:
             task: The task to be processed.
+
+        Raises:
+            RuntimeError: If workers finished normally before admission.
+            ExceptionGroup: If the worker group failed.
+            asyncio.CancelledError: If the caller or worker group was cancelled.
         """
         run = self._worker_run
         if run is not None and run.done():
@@ -244,11 +265,20 @@ class Foreman(Generic[TData, TResult]):
                 await admission
 
     async def get_handled_task(self) -> AquteTask[TData, TResult]:
-        """
-        Retrieves a processed task from the worker's output queue.
+        """Return the next processed task, waiting for worker output.
+
+        Without a started worker group, this waits on the output queue.
+        Results have `result` or `error` set, but `success` is not set.
+        Consume results before cleanup resets the queues.
 
         Returns:
-            AquteTask: The processed task from the queue.
+            The next processed task in output queue order.
+
+        Raises:
+            RuntimeError: If the worker group finished normally without a result.
+            ExceptionGroup: If no result is queued and the worker group failed.
+            asyncio.CancelledError: If the caller is cancelled, or no result is
+                queued and the worker group was cancelled.
         """
         # Keep this run's queue and notification if finalize/stop resets the pool.
         queue, changed, run = self.out_queue, self._results_changed, self._worker_run
@@ -263,8 +293,15 @@ class Foreman(Generic[TData, TResult]):
         return queue.get_nowait()
 
     async def finalize(self) -> None:
-        """
-        Drain queued tasks and wait for all workers to exit, then reset.
+        """Finish admitted work, stop workers, and reset the queues.
+
+        Stop producers first. Consume finite output queues concurrently to
+        avoid blocking completion. Reset discards unconsumed output, including
+        when worker failure propagates. Does nothing if workers never started.
+
+        Raises:
+            ExceptionGroup: If the worker group failed.
+            asyncio.CancelledError: If the caller or worker group was cancelled.
         """
         if self._worker_run is None:
             return
@@ -279,6 +316,12 @@ class Foreman(Generic[TData, TResult]):
         Cancel workers and wait for their cleanup, then reset the queues.
 
         Handlers and rate limiters must cooperate with asyncio cancellation.
+        Pending inputs and unconsumed output are discarded. Unlike `finalize()`,
+        this does not wait for admitted work to complete.
+
+        Raises:
+            ExceptionGroup: If the worker group failed before cleanup.
+            asyncio.CancelledError: If the caller is cancelled during cleanup.
         """
         try:
             if self._worker_run is not None:

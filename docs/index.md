@@ -17,10 +17,10 @@ token-cost admission, shared throttling pauses, and checkpoints without a vendor
 
 ## Installation
 
-These pages and examples cover the 0.10.3 API. With Python 3.11+, install Aqute:
+These pages and examples cover the 0.10.4 API. With Python 3.11+, install Aqute:
 
 ```bash
-python -m pip install aqute==0.10.3
+python -m pip install aqute==0.10.4
 ```
 
 ## Choose an API
@@ -33,7 +33,7 @@ python -m pip install aqute==0.10.3
 | Independent callers awaiting their own replies from one engine | [Per-caller request pool](request_pool.md), using Aqute 0.10.1 or newer |
 
 Use a fresh engine for each helper run. Keep an external client open around the
-managed stream. For configuration defaults, see the [API reference](reference.md).
+managed stream. For configuration defaults, see the [API reference](api/index.md).
 
 ## Quickstart
 
@@ -194,7 +194,7 @@ Install the optional HTTP client, then run this standalone example. It makes
 real GET requests; replace `urls` with your endpoints.
 
 ```bash
-python -m pip install aqute==0.10.3 httpx
+python -m pip install aqute==0.10.4 httpx
 ```
 
 Keep one client open around the managed result stream so workers finish cleanup

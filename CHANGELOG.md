@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.4 - 2026-10-20
+
+- Add a generated [API reference](https://insomnes.github.io/aqute/api/) for the
+  engine, tasks and counters, rate limiters, exceptions, and worker queues.
+- Complete public API docstrings and clarify worker result and cleanup limits.
+  Keep the handwritten behavior guide and its existing anchors.
+- Add a resumable batch recipe with application-owned checkpoints.
+
 ## 0.10.3 - 2026-09-09
 
 - Raise `AquteError` from `finish()` and `iter_results()` when processing is

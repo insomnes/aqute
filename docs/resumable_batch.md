@@ -11,7 +11,7 @@ process; the application must retain or regenerate the original input batch.
 
 ## Run the offline demonstration
 
-After installing `aqute==0.10.3`, save the source below as `resumable_batch.py`
+After installing `aqute==0.10.4`, save the source below as `resumable_batch.py`
 and run `python resumable_batch.py`. From a development checkout, run:
 
 ```bash

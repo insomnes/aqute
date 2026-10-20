@@ -26,6 +26,14 @@ logger = logging.getLogger("aqute")
 
 
 class Aqute(Generic[TData, TResult]):
+    """Process asynchronous tasks with bounded queues, retries, and rate limits.
+
+    `TData` and `TResult` are the handler's input and output types.
+    Use `process_all()` for an ordered batch, `iter_results()` for a managed
+    stream, or the manual lifecycle for continuous submission. Handlers,
+    sources, and rate limiters must cooperate with asyncio cancellation.
+    """
+
     def __init__(
         self,
         handle_coro: Callable[[TData], Coroutine[Any, Any, TResult]],
@@ -47,44 +55,48 @@ class Aqute(Generic[TData, TResult]):
         task_timeout_seconds: int | float | None = None,
         total_failed_tasks_limit: int | None = None,
     ):
-        """
-        Engine for reliable running asynchronous tasks via queue with simple retry and
-        rate limiting configuration.
+        """Configure an engine without starting processing.
 
         Args:
-            handle_coro: Coroutine function used to process tasks.
-            workers_count: Number of workers for processing.
-            rate_limiter (optional): Limiter for processing rate.
-                Defaults to None.
-            result_queue (optional): Caller-owned queue for task results. Its
+            handle_coro: Async handler called with one input item per attempt.
+            workers_count: Maximum occupied workers, including limiter and retry
+                waits. Must be at least one.
+            rate_limiter: Attempt admission limiter, acquired again for each retry.
+                `None` disables rate limiting.
+            result_queue: Caller-owned queue for terminal task results. Its
                 capacity also limits the internal result relay; 0 is unlimited.
-                If omitted, each result queue has capacity workers_count
-                for helper and manual runs alike.
-            retry_count (optional): Number of task retry attempts upon
-                failure. Defaults to 0.
-            retry_delay (optional): Map the 1-based failed-attempt number and
-                exception to finite, nonnegative seconds. Defaults to zero delay.
+                `None` gives each result queue capacity `workers_count` for
+                helper and manual runs alike.
+            retry_count: Extra attempts after the first handler call.
+                Negative values are treated as zero.
+            retry_delay: Map the 1-based failed-attempt number and exception to
+                finite, nonnegative seconds. `None` means zero delay.
                 The delay occupies a worker but is outside the handler timeout.
-            specific_errors_to_retry (optional): Exceptions triggering
-                task retry. None selects every error; an empty tuple selects none.
-            errors_to_not_retry (optional): Exceptions that should not be
-                retried. This option takes precedence over specific_errors_to_retry.
-                Defaults to None.
-            start_timeout_seconds (optional): Wait time before failing after start
-                if no tasks were added. Prequeued tasks do not wait, even when
-                this value is zero or negative. Defaults to None.
-            input_task_queue_size (optional): Maximum pending input items.
-                None (the default) uses workers_count for all runs. Positive
-                values set an explicit capacity; 0 is unlimited. Start processing
+            specific_errors_to_retry: Eligible handler exception types while
+                retry budget remains. `None` selects every caught handler error;
+                an empty tuple selects none.
+            errors_to_not_retry: Excluded exception types; takes precedence over
+                `specific_errors_to_retry`. `None` excludes no types.
+            start_timeout_seconds: Seconds to wait for the first input after
+                start. `None` disables the limit. Prequeued tasks do not wait,
+                even when the value is zero or negative.
+            input_task_queue_size: Maximum pending input items. `None` uses
+                `workers_count` for all runs. Positive values set a capacity;
+                zero or negative values mean unlimited. Start processing
                 before filling a bounded queue and consume results concurrently.
-            use_priority_queue (optional): Use priority queue for tasks.
-                Defaults to False.
-            task_timeout_seconds (optional): Timeout for task handler coroutine wait.
-                Defaults to None. AquteTaskTimeoutError will be raised
-                if task processing takes longer than this value. To not retry task
-                on timeout, add this exception to `errors_to_not_retry`.
-            total_failed_tasks_limit (optional): Maximum failed tasks count before
-                stopping processing. Defaults to None.
+            use_priority_queue: Process admitted pending tasks by increasing
+                `task_priority`. Does not preempt occupied workers.
+            task_timeout_seconds: Timeout in seconds per handler attempt,
+                excluding limiter and retry waits. `None` disables it.
+                Expiry produces `AquteTaskTimeoutError`, subject to retry rules.
+                A nonpositive value prevents handler invocation.
+            total_failed_tasks_limit: Inclusive limit on collected terminal
+                failures. Reaching it fails the run with
+                `AquteTooManyTasksFailedError`. `None` disables the limit.
+                A nonpositive value stops on the first collected failure.
+
+        Raises:
+            ValueError: If `workers_count` is less than one.
         """
         self.result_queue: AquteTaskQueueType[TData, TResult] = (
             asyncio.Queue(workers_count) if result_queue is None else result_queue
@@ -143,6 +155,10 @@ class Aqute(Generic[TData, TResult]):
         handler outcomes before publication. retries counts additional handler
         invocations, excluding retries still waiting to start. Reading results
         does not change counts; retained results are excluded from later runs.
+
+        Returns:
+            Current counts, with terminal outcomes possibly overlapping `running`
+                while workers wait to publish results.
         """
         counts = self._foreman._counters
         return AquteCounters(
@@ -154,14 +170,16 @@ class Aqute(Generic[TData, TResult]):
         )
 
     def start(self) -> asyncio.Task[None]:
-        """
-        Starts the Aqute processing.
+        """Start processing and return the run task.
 
-        If the main load runner task (`aiotask_of_run_load`) is not already
-        initiated, it creates and starts the task.
+        Repeated calls return the same task until `stop()` resets the engine,
+        even if that task has completed. Call this from a running event loop.
 
         Returns:
-            asyncio.Task: The main processing task (`aiotask_of_run_load`).
+            The asyncio task that supervises this run.
+
+        Raises:
+            RuntimeError: If no event loop is running.
         """
         logger.debug("Starting aqute")
         if self.aiotask_of_run_load is None:
@@ -175,20 +193,18 @@ class Aqute(Generic[TData, TResult]):
         return self.aiotask_of_run_load
 
     async def finish(self) -> None:
-        """
-        Awaits the completion of Aqute's main processing task.
+        """Signal submission completion and wait for the current run.
 
-        If the `aiotask_of_run_load` hasn't been started, raises an error. If the
-        task is active, this method waits until it completes.
+        Stop producers before calling this method. Keep consuming finite result
+        queues while waiting. Call `stop()` afterward to reset the engine.
+        Caller cancellation propagates.
 
         Raises:
-            AquteError: If the task has not been initiated or its load was
-                independently cancelled. Caller cancellation still propagates.
-            AquteTooManyTasksFailedError: If there was limit on failed tasks
-                and it was reached.
-
-        Side Effects:
-            Marks all tasks as added.
+            AquteError: If processing has not started, the run was independently
+                cancelled, or the first-input timeout expired.
+            AquteTooManyTasksFailedError: If the terminal failure limit was reached.
+            ExceptionGroup: If a limiter, retry callback, or worker failed outside
+                normal handler error capture.
         """
         logger.debug("Waiting till aqute end")
         if self.aiotask_of_run_load is None:
@@ -206,11 +222,17 @@ class Aqute(Generic[TData, TResult]):
         logger.debug("Aqute load task ended")
 
     async def run(self) -> None:
-        """
-        Initiates Aqute's processing and awaits its completion.
+        """Start processing and finish work submitted before this call.
 
-        Triggers the start of Aqute's main processing and then waits for all
-        tasks to finish. Ensures that all processing completes before exiting.
+        Calls `start()` and `finish()`. For pre-submit-then-run without a
+        concurrent result consumer, explicitly make both queues unlimited.
+        Await `stop()` afterward to reset the engine.
+
+        Raises:
+            AquteError: If the run was independently cancelled or its first-input
+                timeout expired.
+            AquteTooManyTasksFailedError: If the terminal failure limit was reached.
+            ExceptionGroup: If a limiter, retry callback, or worker failed.
         """
         self.start()
         await self.finish()
@@ -221,32 +243,33 @@ class Aqute(Generic[TData, TResult]):
         task_id: str | None = None,
         task_priority: int = 1_000_000,
     ) -> str:
-        """
-        Asynchronously adds a new task for processing.
+        """Submit one input, waiting for queue capacity when processing is active.
 
         Within one run, omitted or empty IDs receive distinct generated values.
-        Caller-supplied IDs are not checked for collisions. The task is forwarded
-        to the foreman for execution and the count of added tasks is incremented.
+        Caller-supplied IDs are not checked for collisions and do not deduplicate
+        work. Retrying a cancelled submission can therefore duplicate processing.
         Cancellation can race completed admission: a cancelled submission does
         not prove that the task was not accepted. Admission accounting includes
         accepted work, even when the submitting caller is cancelled.
 
         Args:
             task_data: Data for the task to process.
-            task_id (optional): Identifier for the task. If omitted or empty, it's
+            task_id: Identifier for the task. If omitted or empty, it is
                 generated from a per-run sequence before waiting for input capacity.
                 Cancelled submissions can leave gaps in this sequence.
-                stop() resets the sequence, so later runs can reuse generated IDs.
-            task_priority (optional): Priority of the task used if priority queue is
-                enabled. Lower means more prior task. Defaults to 1_000_000.
+                `stop()` resets the sequence, so later runs can reuse IDs.
+            task_priority: Priority when `use_priority_queue` is enabled.
+                Lower values run first among admitted pending tasks.
 
         Returns:
-            The task_id associated with the added task.
+            The ID assigned to the admitted task.
 
         Raises:
             AquteError: If the input queue is full before start(). Start processing
                 or set input_task_queue_size=0 for unlimited pre-submission.
                 Also raised when the load has completed or was cancelled.
+            AquteTooManyTasksFailedError: If the active run reached its failure limit.
+            ExceptionGroup: If the active run failed in a worker or retry callback.
         """
         task_id = task_id or str(self._next_task_id)
 
@@ -301,8 +324,11 @@ class Aqute(Generic[TData, TResult]):
         return task_id
 
     def finish_submitting(self) -> None:
-        """
-        Sets the internal flag to indicate all tasks have been added.
+        """Signal that producers have finished submitting input.
+
+        Repeated calls have no additional effect. Stop producers first: this
+        signal does not reject later submissions while the run still has work.
+        Use `finish()` to send the signal and wait for completion.
         """
         if self._all_tasks_added:
             return
@@ -345,7 +371,7 @@ class Aqute(Generic[TData, TResult]):
         identity and capacity. Manual runs use the same queue limits.
 
         Args:
-            tasks_data: Iterable containing data for each task.
+            tasks_data: Synchronous or asynchronous iterable of handler inputs.
             submission_batch_size: Positive number of inputs to admit between
                 cooperative yields. Defaults to 1. Larger values can improve
                 throughput at the cost of result latency. Queue backpressure
@@ -362,6 +388,9 @@ class Aqute(Generic[TData, TResult]):
             AquteError: If a run is already started, manual tasks are pending,
                 or the result queue has retained results. Drain retained results
                 or use a fresh engine before starting another helper run.
+                Also raised for independent run cancellation or first-input timeout.
+            AquteTooManyTasksFailedError: If the terminal failure limit was reached.
+            ExceptionGroup: If a limiter, retry callback, or worker failed.
         """
         return contextlib.aclosing(
             self._iter_results(tasks_data, submission_batch_size=submission_batch_size)
@@ -472,29 +501,32 @@ class Aqute(Generic[TData, TResult]):
         *,
         submission_batch_size: int = 1,
     ) -> list[AquteTask[TData, TResult]]:
-        """
-        Asynchronously processes all tasks from the provided iterable.
+        """Process a finite input and return terminal tasks in input order.
 
         Each item in `tasks_data` is added as a task for processing. The method
         waits until all tasks are completed. Results are collected and returned
         in a list, maintaining the order of the input iterable.
         Internal queues follow iter_results() limits. The returned list retains
         all results, so total memory can still grow with input length.
+        Handler errors remain task values. Source errors and caller cancellation
+        propagate after cooperative cleanup. The engine stops before returning.
 
         Args:
-            tasks_data: Iterable containing data items for the tasks.
+            tasks_data: Finite synchronous or asynchronous iterable of handler inputs.
             submission_batch_size: Positive number of inputs to admit between
                 cooperative yields; see iter_results(). Defaults to 1.
 
         Returns:
-            A list of `AquteTask` objects with results, ordered as in the
-            input iterable.
+            Terminal `AquteTask` objects in input order.
 
         Raises:
             ValueError: If submission_batch_size is not a positive integer.
             AquteError: If a run is already started, manual tasks are pending,
                 or the result queue has retained results. Drain retained results
                 or use a fresh engine before starting another helper run.
+                Also raised for independent run cancellation or first-input timeout.
+            AquteTooManyTasksFailedError: If the terminal failure limit was reached.
+            ExceptionGroup: If a limiter, retry callback, or worker failed.
         """
         async with self.iter_results(
             tasks_data, submission_batch_size=submission_batch_size
@@ -503,15 +535,21 @@ class Aqute(Generic[TData, TResult]):
         return sorted(result, key=lambda task: int(task.task_id))
 
     async def get_result(self) -> AquteTask[TData, TResult]:
-        """
-        Get first available task result in the result queue
+        """Return the next queued result, waiting while the run is active.
+
+        Results use one shared queue and are not paired with the caller's most
+        recent submission. Already queued results remain readable after `stop()`.
+        Do not consume results separately while a helper owns the queue.
 
         Returns:
-            AquteTask with result or error set
+            A terminal task with `success` and `result`, or `error`, set.
+
         Raises:
-            AquteError: If no load is running or a completed load has no more results.
-            AquteTooManyTasksFailedError: If there was limit on failed tasks
-                and it was reached.
+            AquteError: If no results remain and the run is absent, completed,
+                independently cancelled, or failed with a first-input timeout.
+            AquteTooManyTasksFailedError: If no queued results remain and the run
+                reached its terminal failure limit.
+            ExceptionGroup: If no queued results remain and the workers failed.
         """
         if not self.result_queue.empty():
             return self.result_queue.get_nowait()
@@ -530,15 +568,14 @@ class Aqute(Generic[TData, TResult]):
         return self.result_queue.get_nowait()
 
     def drain_results(self) -> list[AquteTask[TData, TResult]]:
-        """
-        Retrieves all the results available in the result queue.
+        """Remove all currently queued results without waiting.
 
-        Extracts and returns all completed `AquteTask` objects from the result
-        queue without waiting. If the queue is empty, an empty list is returned.
-        Users should ensure Aqute has finished processing before calling this method.
+        Results can arrive later while processing continues. To retrieve every
+        outcome, consume concurrently until completion. Do not call this while
+        a helper owns result consumption.
 
         Returns:
-            A list of `AquteTask` objects, each representing a completed task.
+            Terminal tasks in queue order, or an empty list if none are available.
         """
         result = []
         while not self.result_queue.empty():
@@ -551,6 +588,13 @@ class Aqute(Generic[TData, TResult]):
 
         Completed results remain available. Handlers and rate limiters must
         cooperate with asyncio cancellation. The instance can then be reused.
+        Pending input is discarded. Caller cancellation propagates. A failed
+        run's error is raised again after cleanup, even if already observed.
+
+        Raises:
+            AquteError: If the run failed with an engine error.
+            AquteTooManyTasksFailedError: If the run reached its failure limit.
+            ExceptionGroup: If a limiter, retry callback, or worker failed.
         """
         try:
             if self.aiotask_of_run_load is not None:
@@ -666,6 +710,11 @@ class Aqute(Generic[TData, TResult]):
         self._results_changed.set()
 
     async def __aenter__(self) -> Self:
+        """Start the engine when entering `async with engine`.
+
+        Returns:
+            This engine, ready for manual submission and result consumption.
+        """
         self.start()
         return self
 
@@ -675,4 +724,20 @@ class Aqute(Generic[TData, TResult]):
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
+        """Stop the engine and await cleanup when leaving the async context.
+
+        This cancels unfinished processing. Call `finish()` inside the context
+        while consuming results if every admitted task must complete.
+        Block exceptions are not suppressed. Cleanup can re-raise a run failure.
+
+        Args:
+            exc_type: Exception type from the context body, or `None`.
+            exc: Exception instance from the context body, or `None`.
+            tb: Traceback from the context body, or `None`.
+
+        Raises:
+            AquteError: If the run failed with an engine error.
+            AquteTooManyTasksFailedError: If the run reached its failure limit.
+            ExceptionGroup: If a limiter, retry callback, or worker failed.
+        """
         await self.stop()

@@ -1,30 +1,16 @@
-# API and rate limits
+<span id="api-and-rate-limits"></span>
 
-This reference covers Aqute 0.10.3 for Python 3.11+.
+# Behavior and rate limits
+
+This guide covers Aqute 0.10.4 for Python 3.11+.
 For runnable workflows, start with [Choose an API](index.md#choose-an-api) and the [usage guide](usage.md).
-Import the engine with `from aqute import Aqute`.
+See the [generated API reference](api/index.md) for signatures and member descriptions.
 
 ## Constructor
 
-`Aqute(handle_coro, workers_count, ...)` takes two required arguments.
-All remaining parameters are keyword-only. `TData` and `TResult` are the handler's
-input and output types; public methods preserve these types.
-
-| Parameter | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `handle_coro` | `Callable[[TData], Coroutine[Any, Any, TResult]]` | Required | Async handler called with one input item per attempt. |
-| `workers_count` | `int` | Required | Maximum occupied workers, including rate-limit and retry waits. |
-| `rate_limiter` | `RateLimiter` or `None` | `None` | Attempt admission limiter; retries acquire it again. |
-| `result_queue` | `asyncio.Queue[AquteTask[TData, TResult]]` or `None` | `None` | Supplied result queue; its capacity also limits the internal result relay. Omission gives each capacity `workers_count`. |
-| `retry_count` | `int` | `0` | Extra attempts after the first handler call. |
-| `retry_delay` | `Callable[[int, Exception], float]` or `None` | `None` | Delay in seconds before a permitted retry; omission means zero delay. |
-| `specific_errors_to_retry` | Exception class, tuple of exception classes, or `None` | `None` | Eligible handler errors; `None` selects all caught handler errors while retry budget remains; `()` selects none. |
-| `errors_to_not_retry` | Exception class, tuple of exception classes, or `None` | `None` | Excluded errors; takes precedence over the retry selection. |
-| `start_timeout_seconds` | `int`, `float`, or `None` | `None` | Limit on waiting for the first input after start; `None` disables the limit; prequeued inputs need no wait, even at zero or negative values. |
-| `input_task_queue_size` | `int` or `None` | `None` | Pending input capacity; `None` means `workers_count`, zero means unlimited. |
-| `use_priority_queue` | `bool` | `False` | Order admitted pending tasks by increasing `task_priority`. |
-| `task_timeout_seconds` | `int`, `float`, or `None` | `None` | Timeout per handler attempt, excluding limiter and retry waits; `None` disables it. |
-| `total_failed_tasks_limit` | `int` or `None` | `None` | Stop when collected terminal failures reach this inclusive limit; `None` disables it. |
+The [`Aqute` constructor](api/engine.md#aqute.Aqute) documents parameter types,
+defaults, and meanings. `TData` and `TResult` are the handler's input and output
+types; public methods preserve these types.
 
 Queue limits count items, not bytes or caller-retained data. See
 [buffering](usage.md#buffering) for the complete bound and
@@ -32,12 +18,11 @@ Queue limits count items, not bytes or caller-retained data. See
 
 ## Helper options
 
-`process_all(items, *, submission_batch_size=1)` returns an awaited list in input
-order. `iter_results(items, *, submission_batch_size=1)` returns an async context
-for results in completion order. Both accept `Iterable[TData]` and
-`AsyncIterable[TData]`. `submission_batch_size` is a positive integer; larger
-batches can improve throughput for small tasks at the cost of result latency.
-Handlers still receive one item per call. See [streaming cleanup](usage.md#streaming-and-cleanup).
+[`process_all()`](api/engine.md#aqute.Aqute.process_all) returns an awaited list in
+input order. [`iter_results()`](api/engine.md#aqute.Aqute.iter_results) returns an
+async context for results in completion order. Their generated entries document
+input types and submission batching. See
+[streaming cleanup](usage.md#streaming-and-cleanup) for source ownership and reuse.
 
 ## Rate limiters
 
@@ -48,6 +33,8 @@ Available implementations are in `aqute.ratelimiter`:
 - `PerWorkerRateLimiter` applies a separate token bucket to each worker.
 - `RandomizedIntervalRateLimiter` adds bounded random delays after rolling-cap waits.
 - `PausableRateLimiter` wraps any limiter with a shared monotonic pause.
+
+See the [rate limiter API](api/rate-limiters.md) for constructors and public members.
 
 For `TokenBucketRateLimiter` and `SlidingRateLimiter`, `max_rate` applies over
 `time_period` seconds; the default period is one second. To allow five grants
@@ -149,7 +136,7 @@ policies. Threads generally do not make CPU-bound Python work parallel under the
 ## Lower-level worker queues
 
 For lower-level worker queues,
-`aqute.worker.Foreman` exposes `start()`, `add_task(AquteTask(...))`,
+[`aqute.worker.Foreman`](api/worker-queues.md#aqute.worker.Foreman) exposes `start()`, `add_task(AquteTask(...))`,
 `get_handled_task()`, `finalize()`, and `stop()`. Consume finite result queues while
 waiting for `finalize()`.
 
