@@ -25,9 +25,9 @@ The example tests verify returned values, failures, and cleanup. Entrypoint chec
 execute `quickstart`, `streaming`, `retry_progress`, `http_client`, `llm_inference`, `request_pool`,
 and `manual_drain`.
 Commands use `uv.lock`; update dependencies with `uv lock --upgrade` and verify them with
-`make check`. CI tests Python 3.11, 3.12, 3.13, and 3.14.
+`make check`. CI tests Python 3.11, 3.12, 3.13, 3.14, and 3.15.
 
-`make wheel-smoke SMOKE_PYTHON=3.14` builds a wheel, installs it without dependencies
+`make wheel-smoke SMOKE_PYTHON=3.15` builds a wheel, installs it without dependencies
 in a temporary virtual environment, and runs the quickstart outside the checkout.
 The probe checks the import path and expected processing results. Python runs in
 isolated mode to exclude the checkout and user site packages. CI runs this check
