@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.0 - Unreleased
+
+- Add Python 3.15 support to the Python 3.11–3.15 CI and installed-wheel checks.
+  Python 3.11 remains the minimum supported version.
+- Fix shutdown hangs when a handler raises an ordinary exception during
+  cancellation cleanup. Propagate the failure in `ExceptionGroup` after
+  cooperative worker cleanup, without retrying the invocation or returning it
+  as an ordinary task result.
+- Preserve ordinary handler failure and timeout retry behavior, including
+  failures from a handler's own `asyncio.TaskGroup`.
+- Add a shutdown-failure example and clarify cleanup error handling.
+
+### Upgrading from 0.10.x
+
+Shutdown can now raise `ExceptionGroup` when handler cleanup fails, including
+when caller cancellation or a drain deadline initiated shutdown. Code that
+catches only `CancelledError` or `TimeoutError` must also allow cleanup errors
+to propagate, or handle selected errors with `except*` under an explicit recovery
+policy. See the [shutdown-failure example](
+https://insomnes.github.io/aqute/service_shutdown/#when-handler-cleanup-fails).
+
 ## 0.10.4 - 2026-10-20
 
 - Add a generated [API reference](https://insomnes.github.io/aqute/api/) for the
