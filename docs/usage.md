@@ -2,11 +2,30 @@
 
 <span id="for-coding-agents"></span>
 
-This guide covers the 0.10.4 API for Python 3.11+. Start with
+This guide covers Aqute on Python 3.11+. Start with
 [installation](index.md#installation) and [Choose an API](index.md#choose-an-api).
 See the [API reference](api/index.md) for parameter types and defaults, or the
 [changelog](https://github.com/insomnes/aqute/blob/main/CHANGELOG.md) for migration
 from 0.9.x.
+
+## Upgrading to 0.11.0
+
+Python 3.11 or newer is still required. Python 3.15 is now supported.
+
+Handler errors during cancellation cleanup now propagate as `ExceptionGroup`
+after cooperative worker cleanup. This fixes shutdown hangs caused by treating
+cleanup failures as ordinary handler failures. The failed invocation is not
+retried and does not produce an ordinary task result.
+
+Allow these errors to propagate through shutdown, or handle selected errors
+with `except*` when the application has a recovery policy. Catching only
+`CancelledError` or `TimeoutError` does not handle a cleanup failure. Even when
+an outer `asyncio.timeout()` initiates cancellation, failed handler cleanup
+can raise `ExceptionGroup` instead of `TimeoutError`.
+
+Ordinary processing errors and per-attempt timeouts retain their configured
+retry behavior. See the [shutdown-failure example](
+service_shutdown.md#when-handler-cleanup-fails) for logging and propagation.
 
 ## Task results
 
@@ -41,11 +60,12 @@ same context internally and returns a list in input order.
 
 Context exit waits for the producer and workers to stop after full consumption,
 an early `break`, a consumer exception, a source exception, or cancellation.
-Source and consumer errors propagate; handler exceptions derived from `Exception`
-remain task error values.
-Caller cancellation, including a deadline during cleanup, propagates through the
-existing cooperative cleanup path. Cleanup requires sources, handlers, and rate
-limiters to cooperate with cancellation; it cannot forcibly terminate them.
+Source and consumer errors propagate. During processing, handler exceptions
+derived from `Exception` remain task error values. Handler errors during
+cancellation cleanup propagate as `ExceptionGroup`.
+Caller cancellation, including a deadline during cleanup, propagates if handler
+cleanup succeeds. Cleanup requires sources, handlers, and rate limiters to
+cooperate with cancellation; it cannot forcibly terminate them.
 Aqute closes started generator sources. Callers own other source resources,
 including custom iterators with `close()` or `aclose()` methods.
 
@@ -187,9 +207,9 @@ terminal results.
 
 **Since 0.10.3:** `finish()` and `iter_results()` raise `AquteError` if processing
 is independently cancelled, for example by another caller invoking `stop()`.
-Cancellation of the consuming caller still propagates as `CancelledError`;
-an expired outer `asyncio.timeout` still raises `TimeoutError`, including during
-cooperative cleanup.
+If handler cancellation cleanup succeeds, cancellation of the consuming caller
+propagates as `CancelledError`. Under the same condition, an expired outer
+`asyncio.timeout` raises `TimeoutError`, including during cooperative cleanup.
 
 In the manual API, `finish()` propagates the run error. `get_result()` returns
 already-published results first, then propagates the error when the queue is empty
@@ -282,9 +302,22 @@ If the run has failed, `stop()` re-raises its error after cleanup, even if anoth
 call already raised it. This also applies to cleanup through the async context
 manager or a `finally` block.
 
-Completed results remain available after `stop()`. After `await stop()`, call
-`start()` again to reuse the same engine; `stop()` resets the run task and counters.
-Drain retained results before using a helper again.
+If handler cleanup raises an ordinary exception while unwinding cancellation,
+shutdown raises `ExceptionGroup` containing that exception after cooperative
+worker cleanup. This also applies when caller cancellation initiates cleanup
+through `stop()`, `finish()`, `process_all()`, or context exit. The failed invocation
+is not retried and does not produce an ordinary task result. A genuine per-attempt
+timeout remains subject to the configured retry policy.
+
+Unconsumed results already published to `result_queue` remain available after
+`stop()`, including with a caller-supplied queue. Its identity and capacity remain
+unchanged. Handler completion and terminal counters do not guarantee publication;
+unpublished results may be lost during shutdown.
+
+After `stop()` completes cleanup, including when it raises a cleanup error, the
+run task and counters are reset. Call `start()` again to reuse the same engine.
+Drain retained results before using a helper again. After cancelling `finish()`,
+call `stop()` before reusing the engine.
 
 <span id="queue-default-migration"></span>
 

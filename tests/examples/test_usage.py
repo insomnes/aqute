@@ -7,7 +7,13 @@ from collections import Counter
 import httpx
 import pytest
 
-from examples import http_client, retry_progress, service_shutdown, streaming
+from examples import (
+    http_client,
+    retry_progress,
+    service_shutdown,
+    shutdown_failure,
+    streaming,
+)
 
 
 @pytest.mark.parametrize(
@@ -198,3 +204,23 @@ async def test_service_example_deadline_cancels_active_work():
     assert values == []
     assert len(started) == 2
     assert sorted(cleaned) == sorted(started)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_failure_example_logs_and_propagates_cleanup_error(caplog):
+    """The deadline example reports failed cleanup instead of swallowing it."""
+    async with asyncio.timeout(5):
+        with pytest.raises(ExceptionGroup) as caught:
+            await shutdown_failure.main()
+    cleanup_errors = caught.value.subgroup(
+        lambda error: (
+            isinstance(error, OSError)
+            and str(error) == "remote resource cleanup failed"
+        )
+    )
+    assert cleanup_errors is not None
+    assert (
+        "examples.shutdown_failure",
+        logging.ERROR,
+        "Handler cleanup failed during shutdown",
+    ) in caplog.record_tuples

@@ -2,8 +2,10 @@
 
 Stop new input and let the current submission finish while results drain. A
 deadline cancels remaining work and waits for cleanup. The returned boolean reports
-whether draining timed out. Cancellation is cooperative; the deadline cannot
-force a coroutine to terminate. The demonstration uses finite local work.
+whether draining timed out if cleanup succeeds. A handler cleanup error raises
+`ExceptionGroup`, including when a drain timeout initiated cancellation.
+Cancellation is cooperative; the deadline cannot force a coroutine to terminate.
+The demonstration uses finite local work.
 
 ```bash
 uv run --locked python -m examples.service_shutdown
@@ -100,5 +102,74 @@ if __name__ == "__main__":
     logging.info("Results: %s", sorted(asyncio.run(main())))
 ```
 <!-- /example -->
+
+## When handler cleanup fails
+
+In 0.11.0, an ordinary exception raised by a handler during cancellation cleanup
+propagates in an `ExceptionGroup`. Aqute waits for cooperative worker cleanup
+before raising it. The failed invocation is not retried and does not produce an
+ordinary task result. An expired drain deadline can therefore raise a cleanup
+error group instead of `TimeoutError`.
+
+This example starts one handler, then uses a zero-second drain deadline to
+cancel it. The handler simulates a resource cleanup failure. The outer
+`except* OSError` logs matching errors, including errors nested inside groups,
+then re-raises them so the caller can report failed shutdown.
+
+```bash
+uv run --locked python -m examples.shutdown_failure
+```
+
+The command deliberately exits with a nonzero status. Its log and traceback
+include `Handler cleanup failed during shutdown` and
+`OSError: remote resource cleanup failed`.
+
+<!-- example: examples/shutdown_failure.py -->
+```python
+"""Log and propagate a handler cleanup failure after a drain deadline."""
+
+import asyncio
+import logging
+
+from aqute import Aqute
+
+logger = logging.getLogger(__name__)
+
+
+async def main() -> None:
+    started = asyncio.Event()
+
+    async def handle(job_id: int) -> int:
+        try:
+            started.set()
+            await asyncio.Event().wait()
+            return job_id
+        finally:
+            # Simulate a failure while closing the handler's external resource.
+            raise OSError("remote resource cleanup failed")
+
+    engine = Aqute(handle, 1)
+    try:
+        async with engine:
+            await engine.add_task(1)
+            await started.wait()
+            # An immediate drain deadline cancels the already-running handler.
+            async with asyncio.timeout(0):
+                await engine.finish()
+    except* OSError:
+        logger.exception("Handler cleanup failed during shutdown")
+        raise
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())
+```
+<!-- /example -->
+
+In application code, catch only errors for which you have an explicit recovery
+policy. Logging an error does not make resource cleanup successful. If cleanup
+succeeds, caller cancellation still propagates as `CancelledError`, and a drain
+deadline still raises `TimeoutError`.
 
 See [usage](usage.md) for the complete lifecycle and error contracts.
