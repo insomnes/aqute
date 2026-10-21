@@ -2,7 +2,7 @@
 
 # Behavior and rate limits
 
-This guide covers Aqute 0.10.4 for Python 3.11+.
+This guide covers Aqute 0.11.0 for Python 3.11+.
 For runnable workflows, start with [Choose an API](index.md#choose-an-api) and the [usage guide](usage.md).
 See the [generated API reference](api/index.md) for signatures and member descriptions.
 
