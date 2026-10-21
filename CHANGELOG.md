@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.11.0 - Unreleased
+## 0.11.0 - 2026-10-21
 
 - Add Python 3.15 support to the Python 3.11–3.15 CI and installed-wheel checks.
   Python 3.11 remains the minimum supported version.
